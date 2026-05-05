@@ -160,3 +160,4 @@ compute/dashboard_builder_compute.egg-info/
 # Editor
 .idea/
 *.swp
+.vercel
