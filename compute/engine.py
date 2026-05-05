@@ -48,10 +48,6 @@ def detect_mode() -> ComputeMode:
         return ComputeMode("demo", "AXIOM_RULES_BIN not set; serving expected outputs from .test.yaml")
     if not Path(binary).exists():
         return ComputeMode("demo", f"AXIOM_RULES_BIN={binary} does not exist; falling back to demo mode")
-    try:
-        import axiom_rules  # noqa: F401
-    except ImportError:
-        return ComputeMode("demo", "axiom_rules Python package not installed; falling back to demo mode")
     return ComputeMode("real", f"using engine at {binary}")
 
 
