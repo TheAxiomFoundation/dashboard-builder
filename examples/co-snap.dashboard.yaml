@@ -1,0 +1,152 @@
+# Reference DashboardSpec — Colorado SNAP FY 2026 benefit calculation.
+#
+# Picks a small, demo-friendly slice of the CO SNAP program: a few headline
+# inputs (household size, earnings, shelter cost, utility heating, citizenship,
+# elderly/disabled status) and the outputs the user actually wants to see
+# (eligibility verdict + monthly allotment + intermediate net income).
+#
+# Every other input the program needs is supplied by the compute service from
+# the program's `.test.yaml` template — see compute/main.py.
+
+specVersion: "0.1"
+
+meta:
+  title: "Colorado SNAP estimator"
+  description: |
+    Estimate a Colorado household's monthly SNAP allotment using the FY 2026
+    benefit-calculation rules. Powered by Axiom RuleSpec.
+  theme: "axiom"
+
+program:
+  repo: "rules-us-co"
+  path: "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
+  displayName: "Colorado SNAP — FY 2026 benefit calculation"
+
+period:
+  kind: "month"
+  start: "2026-01-01"
+
+groups:
+  - key: "household"
+    label: "Household"
+    order: 1
+  - key: "income"
+    label: "Monthly income"
+    order: 2
+  - key: "shelter"
+    label: "Shelter & utilities"
+    order: 3
+
+inputs:
+  - id: "household_size"
+    legalId: "us-co:regulations/10-ccr-2506-1/4.207.3#input.household_size"
+    dtype: "integer"
+    label: "Household size"
+    help: "Number of people in the SNAP household."
+    group: "household"
+    order: 1
+    default: 1
+    widget: "number"
+
+  - id: "members"
+    legalId: "us:statutes/7/2012/j#relation.member_of_household"
+    label: "Household members"
+    group: "household"
+    order: 2
+    minCount: 1
+    maxCount: 12
+    memberInputs:
+      - id: "member_is_elderly_or_disabled"
+        legalId: "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled"
+        dtype: "boolean"
+        label: "Elderly or disabled?"
+        default: false
+      - id: "member_age_general"
+        legalId: "us:regulations/7-cfr/273/7#input.member_age"
+        dtype: "integer"
+        label: "Age"
+        default: 60
+      - id: "member_age_abawd"
+        legalId: "us:regulations/7-cfr/273/24#input.member_age"
+        dtype: "integer"
+        label: "Age (ABAWD)"
+        default: 60
+      - id: "member_is_us_citizen"
+        legalId: "us:regulations/7-cfr/273/4#input.member_is_us_citizen"
+        dtype: "boolean"
+        label: "US citizen?"
+        default: true
+
+  - id: "employee_wages_received"
+    legalId: "us-co:regulations/10-ccr-2506-1/4.403#input.employee_wages_received"
+    dtype: "money"
+    label: "Monthly employee wages"
+    help: "Gross monthly wages from employment."
+    group: "income"
+    order: 1
+    default: 0
+    widget: "currency"
+
+  - id: "household_shelter_costs_incurred"
+    legalId: "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred"
+    dtype: "money"
+    label: "Monthly shelter costs"
+    help: "Rent or mortgage plus property taxes and homeowner's insurance."
+    group: "shelter"
+    order: 1
+    default: 0
+    widget: "currency"
+
+  - id: "heating_cooling_costs_separate"
+    legalId: "us-co:regulations/10-ccr-2506-1/4.407.31#input.household_incurred_or_anticipated_heating_or_cooling_costs_separate_from_rent_or_mortgage"
+    dtype: "boolean"
+    label: "Heating or cooling costs paid separately from rent/mortgage?"
+    group: "shelter"
+    order: 2
+    default: false
+    widget: "switch"
+
+outputs:
+  - id: "snap_eligible"
+    legalId: "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_eligible"
+    label: "SNAP eligible?"
+    emphasis: "headline"
+    order: 1
+    presentation:
+      kind: "eligibility"
+      positiveLabel: "Eligible"
+      negativeLabel: "Not eligible"
+    showExplain: true
+
+  - id: "snap_regular_month_allotment"
+    legalId: "us:statutes/7/2017/a#snap_regular_month_allotment"
+    label: "Monthly SNAP allotment"
+    emphasis: "headline"
+    order: 2
+    presentation:
+      kind: "currency"
+      currency: "USD"
+      decimals: 0
+    showExplain: true
+
+  - id: "snap_net_income"
+    legalId: "us:statutes/7/2014/e/6/A#snap_net_income"
+    label: "Net monthly income (SNAP)"
+    emphasis: "secondary"
+    order: 3
+    presentation:
+      kind: "currency"
+      currency: "USD"
+      decimals: 0
+    showExplain: false
+
+  - id: "shelter_costs"
+    legalId: "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#shelter_costs"
+    label: "Total shelter costs"
+    emphasis: "secondary"
+    order: 4
+    presentation:
+      kind: "currency"
+      currency: "USD"
+      decimals: 0
+    showExplain: false

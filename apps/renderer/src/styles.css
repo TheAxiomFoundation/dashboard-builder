@@ -1,0 +1,95 @@
+/* Standalone renderer chrome — extends @dashboard-builder/render base styles
+   with editorial framing for the page-level shell. */
+
+.shell {
+  position: relative;
+  z-index: 1;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 56px 32px 80px;
+}
+
+.shell-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 18px;
+  padding-bottom: 28px;
+  margin-bottom: 36px;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.shell-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.shell-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-meta .eyebrow {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.shell-meta .source {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  color: var(--color-ink-muted);
+  margin-top: 4px;
+}
+
+.shell-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.shell h1 {
+  font-family: var(--f-display);
+  font-weight: 300;
+  font-size: clamp(1.85rem, 3.4vw, 2.6rem);
+  line-height: 1.15;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-ink);
+  margin: 0 0 12px;
+}
+
+.shell .description {
+  font-family: var(--f-serif);
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--color-ink-secondary);
+  max-width: 60ch;
+  margin: 0 0 32px;
+}
+
+/* Page-level paper texture (matches axiom-foundation.org) */
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.11  0 0 0 0 0.10  0 0 0 0 0.09  0 0 0 0.04 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}

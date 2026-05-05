@@ -141,3 +141,22 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Python (compute service)
+__pycache__/
+*.pyc
+.venv/
+.uv/
+.pytest_cache/
+.ruff_cache/
+
+# Compute artifacts and caches
+compute/.cache/
+compute/artifacts/
+compute/rules-cache/
+compute/dashboards/*.json
+compute/dashboard_builder_compute.egg-info/
+
+# Editor
+.idea/
+*.swp
