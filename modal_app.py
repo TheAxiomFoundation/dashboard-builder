@@ -21,12 +21,14 @@ import modal
 app = modal.App("dashboard-builder-compute")
 
 # Bump when source repos change to bust the layer cache and re-build.
-ENGINE_VERSION = "v1"
+ENGINE_VERSION = "v2-reiteration"
 
 # Pinned commit SHAs — keep these in sync with the local checkouts you
-# develop against to avoid trace/spec drift.
-AXIOM_RULES_SHA = "9106f44e34ec3eae92a1adf2246560c5eac00094"
-RULES_US_SHA = "2f3a30991e1f8279c2fa664e51f068a63d905591"
+# develop against to avoid trace/spec drift. The CO rule pack uses the
+# `reiteration` rule kind, which axiom-rules only supports starting at
+# 21554e75; older SHAs (the v1 pin at 9106f44) reject the program.
+AXIOM_RULES_SHA = "21554e75196c8fcb0314d600ede6ab1145813e1a"
+RULES_US_SHA = "3aca0f3bee0eb128e3d091b02734ab5ebea527fc"
 RULES_US_CO_SHA = "e3f7c374177d95debfd092061fedd99fb8e6dccb"
 
 image = (
