@@ -1,0 +1,19 @@
+{
+  "name": "dashboard-builder",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Wizard-driven playground that composes Axiom-style benefit rule dashboards",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:builder": "pnpm --filter @dashboard-builder/builder dev",
+    "dev:renderer": "pnpm --filter @dashboard-builder/renderer dev",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
