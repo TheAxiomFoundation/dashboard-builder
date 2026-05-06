@@ -12,7 +12,7 @@
 
 import type { Draft } from "./draft";
 
-export type StepId = "program" | "outputs" | "inputs" | "graph" | "publish";
+export type StepId = "program" | "outputs" | "inputs" | "review" | "publish";
 
 export interface StepDef {
   id: StepId;
@@ -72,16 +72,16 @@ export const STEPS: StepDef[] = [
     canContinue: () => true,
   },
   {
-    id: "graph",
+    id: "review",
     ordinal: "IV",
     index: 4,
-    label: "Graph",
-    title: <>How it <em>computes</em></>,
+    label: "Review",
+    title: <>Review your <em>calculator</em></>,
     lede: (
       <>
-        Trace every output back to the rules that feed it and the inputs
-        that drive them. Click a node to add or remove it; hover for the
-        legal citation and source.
+        A snapshot of everything you've picked — outputs, inputs, source
+        documents — and a graph showing how they connect. Refine from
+        here if you spot something off, or move on to the preview.
       </>
     ),
     canContinue: () => true,
