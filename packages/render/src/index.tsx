@@ -8,3 +8,4 @@ export {
   type FormState,
   type ComputeResult,
 } from "./compute-client";
+export { parseFormula, type AstNode } from "./formula";

@@ -16,6 +16,7 @@ import {
   selectOutput,
   widgetFor,
 } from "./draft";
+import { validateOutput } from "./validators";
 // ProgramPicker (modal) is no longer used — Step I now has an inline list.
 
 const DRAFT_STORAGE_KEY = "dashboard-builder.draft";
@@ -210,6 +211,11 @@ export function App() {
     }
     const rule = draft.graph.rules.find((r) => r.legalId === legalId);
     if (!rule) return;
+    // Same static check as the OutputStep picker — silently no-op on a
+    // rule that would break compute. The picker's disabled chip explains
+    // why; we get here from the graph's "+ output" affordance which has
+    // less surface to message.
+    if (validateOutput(rule, draft, draft.graph.rules)) return;
     setDraft({ ...draft, outputs: [...draft.outputs, selectOutput(rule)] });
   }
 
