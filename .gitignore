@@ -161,3 +161,6 @@ compute/dashboard_builder_compute.egg-info/
 .idea/
 *.swp
 .vercel
+
+# Claude Code session state
+.claude/
