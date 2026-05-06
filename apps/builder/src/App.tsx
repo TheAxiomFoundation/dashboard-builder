@@ -37,10 +37,12 @@ function loadStep(): StepId {
     raw === "program" ||
     raw === "outputs" ||
     raw === "inputs" ||
-    raw === "graph" ||
+    raw === "review" ||
     raw === "publish"
   )
     return raw;
+  // Backward-compat for the old id from before the rename.
+  if (raw === "graph") return "review";
   return "program";
 }
 
@@ -250,7 +252,7 @@ export function App() {
             {stepId === "program" && <ProgramStep draft={draft} setDraft={setDraft} />}
             {stepId === "outputs" && <OutputStep draft={draft} setDraft={setDraft} />}
             {stepId === "inputs" && <InputStep draft={draft} setDraft={setDraft} />}
-            {stepId === "graph" && (
+            {stepId === "review" && (
               <GraphStep
                 draft={draft}
                 exposedInputIds={exposedInputIds}
