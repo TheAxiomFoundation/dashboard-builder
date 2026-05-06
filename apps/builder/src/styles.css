@@ -1423,6 +1423,38 @@ body::before {
   background: var(--color-accent-light);
 }
 
+/* Chip blocked from selection — entity mismatch or other static check
+   that would make compute reject the resulting dashboard. The whole row
+   dims, the checkbox is disabled, and a "incompatible" tag explains why
+   (full reason in the chip's title attribute). */
+.chip.chip-blocked {
+  opacity: 0.5;
+  background: var(--color-rule-subtle);
+  cursor: not-allowed;
+}
+.chip.chip-blocked:hover {
+  border-color: var(--color-rule);
+}
+.chip.chip-blocked .label {
+  color: var(--color-ink-muted);
+}
+.chip.chip-blocked input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
+.blocked-tag {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-error);
+  padding: 2px 8px;
+  border-radius: 2px;
+  background: var(--color-error-light);
+  margin-left: 8px;
+}
+
 .per-member-tag {
   font-family: var(--f-mono);
   font-size: 9.5px;

@@ -304,8 +304,7 @@ export function InteractiveRuleGraph({
             const data = node.data as IrgNodeData;
             const target = e.target as HTMLElement;
             // Each action row tags itself with data-action; we route the
-            // click to the right handler based on which row was hit. This
-            // matters now that rule nodes stack two action rows.
+            // click to the right handler based on which row was hit.
             const actionEl = target.closest(".irg-action") as HTMLElement | null;
             const action = actionEl?.dataset.action;
             if (data.kind === "input" && onExposeInput && actionEl) {
@@ -313,6 +312,16 @@ export function InteractiveRuleGraph({
               return;
             }
             if (data.kind === "ruleRef") {
+              if (action === "output" && onAddOutput) {
+                onAddOutput(data.legalId);
+                return;
+              }
+              if (action === "collapse" && data.canExpand) {
+                toggleCollapse(data.legalId);
+                return;
+              }
+            }
+            if (data.kind === "output") {
               if (action === "output" && onAddOutput) {
                 onAddOutput(data.legalId);
                 return;
@@ -434,10 +443,20 @@ type IrgNodeData =
   | {
       kind: "output";
       label: string;
+      legalId: string;
       verdictCls: string;
       value: string;
       showValues: boolean;
       meta: NodeMeta;
+      /** True when the parent passed onAddOutput — enables the "− output"
+       *  affordance so the user can demote the binding from inside the
+       *  graph (matters for outputs that were promoted up from rules). */
+      canToggleOutput: boolean;
+      /** True when the underlying trace has a formula whose upstream
+       *  chain we can collapse. */
+      canExpand: boolean;
+      /** Current collapse state — drives "+ expand" / "− collapse". */
+      isExpanded: boolean;
     }
   | {
       kind: "input";
@@ -692,6 +711,19 @@ const OutputNode = ({ data }: NodeProps) => {
       <div className="irg-eyebrow">Output</div>
       <div className="irg-label">{softBreak(d.label)}</div>
       {d.showValues && d.value && <div className="irg-value">{d.value}</div>}
+      {d.canToggleOutput && (
+        <div className="irg-action irg-action-clickable" data-action="output">
+          − output
+        </div>
+      )}
+      {d.canExpand && (
+        <div
+          className="irg-action irg-action-secondary irg-action-clickable"
+          data-action="collapse"
+        >
+          {d.isExpanded ? "− collapse" : "+ expand"}
+        </div>
+      )}
       <NodeInfo
         meta={d.meta}
         title={d.label}
@@ -912,16 +944,22 @@ function buildGraph(
   let counter = 0;
   const nextId = () => `n${counter++}`;
 
-  // For each selected output, render a top-level "output" node with its
-  // formula's AST as the source DAG flowing into it.
-  for (const binding of spec.outputs) {
-    const outputTrace = traces[binding.legalId];
-    if (!outputTrace) continue;
-
+  // Pre-create all OUTPUT nodes for the selected outputs *before* walking
+  // any formula. This lets walkAst redirect a sub-rule reference back to
+  // its existing OUTPUT node when an intermediate rule has been promoted
+  // (otherwise the same legalId ends up rendered twice — once as the
+  // dashboard's output, once as a ruleRef inside another output's chain).
+  const outputBindings = spec.outputs.filter((b) => traces[b.legalId]);
+  const outputNodeIdByLegalId = new Map<string, string>();
+  for (const binding of outputBindings) {
+    const outputTrace = traces[binding.legalId]!;
     const outputId = `out:${binding.legalId}`;
+    const isExpanded = !collapsed.has(binding.legalId);
+    const canExpand = Boolean(outputTrace.formula);
     if (!nodeIds.has(outputId)) {
       const id = nextId();
       nodeIds.set(outputId, id);
+      outputNodeIdByLegalId.set(binding.legalId, id);
       nodes.push({
         id,
         type: "output",
@@ -929,15 +967,26 @@ function buildGraph(
         data: {
           kind: "output",
           label: binding.label,
+          legalId: binding.legalId,
           verdictCls: verdictClass(outputTrace),
           value: showValues ? formatValue(outputTrace.value) : "",
           showValues,
           meta: buildMeta(outputTrace, "Output"),
+          canToggleOutput: canToggleOutputs,
+          canExpand,
+          isExpanded,
         } satisfies IrgNodeData,
       });
+    } else {
+      outputNodeIdByLegalId.set(binding.legalId, nodeIds.get(outputId)!);
     }
+  }
 
-    if (outputTrace.formula) {
+  for (const binding of outputBindings) {
+    const outputTrace = traces[binding.legalId]!;
+    const outputId = `out:${binding.legalId}`;
+    const isExpanded = !collapsed.has(binding.legalId);
+    if (outputTrace.formula && isExpanded) {
       const sourceId = walkExpr(
         outputTrace.formula,
         outputTrace.legalId,
@@ -955,6 +1004,7 @@ function buildGraph(
           parametersByName,
           selectedOutputIds,
           canToggleOutputs,
+          outputNodeIdByLegalId,
         },
       );
       if (sourceId) {
@@ -1095,6 +1145,10 @@ interface WalkCtx {
   selectedOutputIds: Set<string> | undefined;
   /** True when the parent passed an onAddOutput callback (Step II). */
   canToggleOutputs: boolean;
+  /** legalId → existing OUTPUT node id. When the formula walker resolves
+   *  a sub-rule whose legalId is already an output binding, we reuse
+   *  the OUTPUT node instead of creating a parallel ruleRef. */
+  outputNodeIdByLegalId: Map<string, string>;
 }
 
 /**
@@ -1164,6 +1218,12 @@ function walkAst(node: AstNode, parentScope: string, opPath: string, ctx: WalkCt
           } satisfies IrgNodeData,
         });
       }
+      // If this rule was promoted to a dashboard output, the spec.outputs
+      // pre-pass already created an OUTPUT node for it. Reuse that node
+      // so the same legalId doesn't render as both an output and a
+      // ruleRef in the same graph.
+      const existingOutputId = ctx.outputNodeIdByLegalId.get(t.legalId);
+      if (existingOutputId) return existingOutputId;
       // Sub-rule reference. By default render its formula's AST inline; the
       // rule pill is the "result" node. User can collapse the rule to hide
       // its internals and click again to re-expand.
@@ -1570,7 +1630,10 @@ function labelledNodeSize(
   } else if (data.kind === "input") {
     chrome = 78; // padding + eyebrow + + EXPOSE divider row
   } else if (data.kind === "output") {
-    chrome = 72;
+    // Outputs can stack TWO action rows: demote-from-output + expand.
+    const outputRows =
+      (data.canToggleOutput ? 1 : 0) + (data.canExpand ? 1 : 0);
+    chrome = 50 + outputRows * 22;
   } else if (data.kind === "ruleRef") {
     // Rules can stack TWO action rows: output toggle + collapse/expand.
     // Reserve room for both when the parent enabled both affordances.

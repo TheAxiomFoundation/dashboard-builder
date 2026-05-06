@@ -3,6 +3,7 @@ import type { Draft, OutputSelection } from "../draft";
 import { humanize, selectOutput } from "../draft";
 import type { RuleNode } from "../api";
 import { axiomAppUrl, humanizeCitation } from "../citations";
+import { validateOutput, type ValidationIssue } from "../validators";
 
 interface Props {
   draft: Draft;
@@ -83,6 +84,24 @@ export function OutputStep({ draft, setDraft }: Props) {
 
   const visibleGroups = showAllGroups || q ? groups : groups.slice(0, 4);
 
+  // Memoised per-rule validation so we don't re-walk every formula AST
+  // each render. Keyed by legalId. Only runs over rules the user is
+  // looking at right now (selected + visible groups + flat search) so
+  // we don't pay for the whole index when most of it is hidden.
+  const validation = useMemo(() => {
+    const map = new Map<string, ValidationIssue | null>();
+    const candidates = new Set<string>();
+    for (const o of draft.outputs) candidates.add(o.legalId);
+    for (const g of visibleGroups) for (const r of g.rules) candidates.add(r.legalId);
+    for (const r of flatRanked) candidates.add(r.legalId);
+    for (const id of candidates) {
+      const r = graph.rules.find((x) => x.legalId === id);
+      if (!r) continue;
+      map.set(id, validateOutput(r, draft, graph.rules));
+    }
+    return map;
+  }, [graph.rules, visibleGroups, flatRanked, draft]);
+
   // ---------- selection mutations ----------
 
   function toggle(legalId: string) {
@@ -94,6 +113,10 @@ export function OutputStep({ draft, setDraft }: Props) {
     }
     const rule = graph.rules.find((r) => r.legalId === legalId);
     if (!rule) return;
+    // Block adds that would break compute. (Removals always allowed —
+    // we never want the user trapped in a broken state.)
+    const issue = validateOutput(rule, draft, graph.rules);
+    if (issue) return;
     setDraft({ ...draft, outputs: [...draft.outputs, selectOutput(rule)] });
   }
 
@@ -257,6 +280,7 @@ export function OutputStep({ draft, setDraft }: Props) {
               isSelected={selectedIds.has(rule.legalId)}
               isEditing={editingId === rule.legalId}
               isTerminal={terminal.has(rule.legalId)}
+              issue={validation.get(rule.legalId) ?? null}
               selection={draft.outputs.find((o) => o.legalId === rule.legalId)}
               onToggle={() => toggle(rule.legalId)}
               onEditToggle={() =>
@@ -316,6 +340,7 @@ export function OutputStep({ draft, setDraft }: Props) {
                         isSelected={selectedIds.has(rule.legalId)}
                         isEditing={editingId === rule.legalId}
                         isTerminal={terminal.has(rule.legalId)}
+                        issue={validation.get(rule.legalId) ?? null}
                         selection={draft.outputs.find((o) => o.legalId === rule.legalId)}
                         onToggle={() => toggle(rule.legalId)}
                         onEditToggle={() =>
@@ -350,6 +375,7 @@ function RuleRow({
   isSelected,
   isEditing,
   isTerminal,
+  issue,
   selection,
   onToggle,
   onEditToggle,
@@ -359,22 +385,35 @@ function RuleRow({
   isSelected: boolean;
   isEditing: boolean;
   isTerminal: boolean;
+  issue: ValidationIssue | null;
   selection: OutputSelection | undefined;
   onToggle: () => void;
   onEditToggle: () => void;
   onPatch: (p: Partial<OutputSelection>) => void;
 }) {
+  // Already-selected rows can always be removed even if validation later
+  // flagged them — we don't want the user trapped in a broken state.
+  const blocked = !!issue && !isSelected;
   return (
     <div>
-      <div className={`chip ${isSelected ? "chip-selected" : ""}`}>
+      <div
+        className={`chip ${isSelected ? "chip-selected" : ""} ${blocked ? "chip-blocked" : ""}`}
+        title={blocked ? issue!.reason : undefined}
+      >
         <label>
-          <input type="checkbox" checked={isSelected} onChange={onToggle} />
+          <input
+            type="checkbox"
+            checked={isSelected}
+            disabled={blocked}
+            onChange={onToggle}
+          />
           <span className="label">
             {selection?.label ?? humanize(rule.name)}
+            {blocked && <span className="blocked-tag">incompatible</span>}
           </span>
         </label>
         <div className="chip-actions">
-          {isTerminal && !isSelected && (
+          {isTerminal && !isSelected && !blocked && (
             <span className="terminal-tag">headline</span>
           )}
           {isSelected && (
