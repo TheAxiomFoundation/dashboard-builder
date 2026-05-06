@@ -98,6 +98,21 @@ export function InteractiveRuleGraph({
   // mathematical operator that means "the boxes it pertains to"; for an
   // intermediate variable that means the chain on both sides.
   const [highlightNodeId, setHighlightNodeId] = useState<string | null>(null);
+  // Bumps when web fonts finish loading so we re-run buildGraph (and
+  // therefore re-measure label heights) with the correct typeface
+  // metrics — the initial pass may have used a fallback while
+  // Geist Mono was still in flight.
+  const [fontsReady, setFontsReady] = useState(0);
+  useEffect(() => {
+    if (typeof document === "undefined" || !("fonts" in document)) return;
+    let cancelled = false;
+    void (document as Document).fonts.ready.then(() => {
+      if (!cancelled) setFontsReady((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Track Fullscreen API state so the toggle reflects reality (user may
   // press Esc, click outside, etc.).
@@ -166,6 +181,8 @@ export function InteractiveRuleGraph({
       parameterRules,
       selectedOutputIds,
       canToggleOutputs,
+      // Re-build (and therefore re-measure label heights) when fonts load.
+      fontsReady,
     ],
   );
 
@@ -638,7 +655,7 @@ const NodeInfo = ({
       onMouseLeave={onLeave}
     >
       <div className="irg-pop-eyebrow">{meta.kindLine}</div>
-      <div className="irg-pop-title">{softBreak(title)}</div>
+      <div className="irg-pop-title">{softBreak(humanizeLabel(title))}</div>
       {meta.formulaPreview && (
         <div className="irg-pop-formula">{meta.formulaPreview}</div>
       )}
@@ -664,6 +681,18 @@ const NodeInfo = ({
  * shearing through the middle of a word. Each token is still selectable
  * and copies cleanly (ZWSPs are stripped by most clipboard targets).
  */
+/**
+ * Convert a snake_case identifier into a human-readable label —
+ * "snap_household_size" → "Snap household size". Used for every label
+ * the graph renders so non-engineers don't have to read raw RuleSpec
+ * identifiers. The raw legal-id is still available on hover via the
+ * info popover.
+ */
+function humanizeLabel(s: string): string {
+  if (!s) return s;
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function softBreak(s: string): string {
   return s.replace(/([_.])/g, "$1​");
 }
@@ -709,7 +738,7 @@ const OutputNode = ({ data }: NodeProps) => {
       <HandleTarget />
       <InfoBadge open={pop.open} onEnter={pop.enter} onLeave={pop.leave} />
       <div className="irg-eyebrow">Output</div>
-      <div className="irg-label">{softBreak(d.label)}</div>
+      <div className="irg-label">{softBreak(humanizeLabel(d.label))}</div>
       {d.showValues && d.value && <div className="irg-value">{d.value}</div>}
       {d.canToggleOutput && (
         <div className="irg-action irg-action-clickable" data-action="output">
@@ -755,7 +784,7 @@ const InputNode = ({ data }: NodeProps) => {
       <div className="irg-eyebrow">
         Input · <span className={`irg-status irg-status-${d.source}`}>{status}</span>
       </div>
-      <div className="irg-label">{softBreak(d.label)}</div>
+      <div className="irg-label">{softBreak(humanizeLabel(d.label))}</div>
       {d.showValues && d.value && <div className="irg-value">{d.value}</div>}
       {showAction && (
         <div className="irg-action irg-action-clickable">
@@ -809,7 +838,7 @@ const RuleRefNode = ({ data }: NodeProps) => {
       <HandleBoth />
       <InfoBadge open={pop.open} onEnter={pop.enter} onLeave={pop.leave} />
       <div className="irg-eyebrow">{d.isOutput ? "Rule · output" : "Rule"}</div>
-      <div className="irg-label">{softBreak(d.label)}</div>
+      <div className="irg-label">{softBreak(humanizeLabel(d.label))}</div>
       {d.showValues && d.value && <div className="irg-value">{d.value}</div>}
       {d.canToggleOutput && (
         <div
@@ -860,7 +889,7 @@ const UnknownNode = ({ data }: NodeProps) => {
         <InfoBadge open={pop.open} onEnter={pop.enter} onLeave={pop.leave} />
       )}
       <div className="irg-eyebrow">Parameter</div>
-      <div className="irg-label">{softBreak(d.label)}</div>
+      <div className="irg-label">{softBreak(humanizeLabel(d.label))}</div>
       {d.meta && (
         <NodeInfo
           meta={d.meta}
@@ -1600,43 +1629,33 @@ function labelledNodeSize(
   width: number,
   small = false,
 ): { width: number; height: number } {
-  // Geist Mono at 11 px with letter-spacing 0.04em renders ~7.5 px per
-  // character; using 7.6 here as a conservative bound so estimates round
-  // up rather than down (an under-estimate clips the action row below
-  // the box border, which is what we're trying to prevent).
-  const charWidthPx = 7.6;
-  const horizontalPaddingPx = 26; // padding-x on .irg-node
+  // Measure the actual rendered height of the label by inserting it
+  // into a hidden offscreen <div> styled identically to .irg-label.
+  // Far more reliable than estimating from char counts — the browser
+  // handles kerning / sub-pixel rounding / font-loading nuances for
+  // free, so dagre's layout matches what's actually drawn.
+  // Per-kind horizontal padding must match CSS or the measured wrap
+  // points will diverge from the rendered ones. Inputs get extra side
+  // padding because their pill shape eats into the corners.
+  const horizontalPaddingPx = data.kind === "input" ? 40 : 28;
   const usableWidth = width - horizontalPaddingPx;
-  const charsPerLine = Math.max(1, Math.floor(usableWidth / charWidthPx));
-  // Greedy-pack tokens (split at underscores/dots, matching softBreak()'s
-  // ZWSP boundaries) onto lines. A naive `length / charsPerLine` undercounts
-  // because identifiers like "self_employment_income_calculated_on_anticipated_basis"
-  // break at chunk boundaries, leaving partial-line whitespace.
-  // +1 safety line: browsers occasionally pick a stricter break point
-  // than our greedy packer (sub-pixel rounding, kerning, etc.), and we'd
-  // rather waste 16 px of vertical space than clip the action row.
-  const estimatedLines = estimateWrappedLines(label, charsPerLine);
-  const lines = estimatedLines + 1;
-  const labelLineHeight = 16;
-  const labelBlockHeight = lines * labelLineHeight;
+  const labelBlockHeight = label
+    ? measureLabelHeight(softBreak(humanizeLabel(label)), usableWidth)
+    : 16;
 
   // Per-kind chrome (padding + eyebrow + value/action rows). Generous
-  // buffers — under-estimating means the action row overflows below the
-  // box (visible because we use overflow:visible to avoid clipping the
-  // eyebrow against the border).
+  // buffers since these are still estimated — but their content is
+  // small and predictable so error here is bounded.
   let chrome: number;
   if (small) {
     chrome = 50;
   } else if (data.kind === "input") {
     chrome = 78; // padding + eyebrow + + EXPOSE divider row
   } else if (data.kind === "output") {
-    // Outputs can stack TWO action rows: demote-from-output + expand.
     const outputRows =
       (data.canToggleOutput ? 1 : 0) + (data.canExpand ? 1 : 0);
     chrome = 50 + outputRows * 22;
   } else if (data.kind === "ruleRef") {
-    // Rules can stack TWO action rows: output toggle + collapse/expand.
-    // Reserve room for both when the parent enabled both affordances.
     const actionRows =
       (data.canToggleOutput ? 1 : 0) + (data.canExpand ? 1 : 0);
     chrome = 50 + actionRows * 22;
@@ -1647,40 +1666,44 @@ function labelledNodeSize(
 }
 
 /**
- * Approximate the number of lines a snake_case / dotted identifier wraps
- * to inside a fixed-width box. Splits the label at underscore / dot
- * boundaries (the same break points softBreak() inserts ZWSPs at) and
- * greedy-packs the resulting chunks. Falls back to mid-chunk wrapping
- * for any single chunk longer than `charsPerLine`.
+ * Measure the rendered height of a label by inserting it into a hidden
+ * offscreen <div> styled identically to `.irg-label`, then reading
+ * getBoundingClientRect(). Singleton element so we don't thrash the DOM.
  */
-function estimateWrappedLines(label: string, charsPerLine: number): number {
-  if (!label) return 1;
-  const chunks = label.split(/(?<=[_.])/);
-  let lines = 1;
-  let used = 0;
-  for (const chunk of chunks) {
-    if (chunk.length === 0) continue;
-    if (used === 0 && chunk.length > charsPerLine) {
-      // Single token longer than the line — wraps mid-chunk.
-      const internal = Math.ceil(chunk.length / charsPerLine);
-      lines += internal - 1;
-      used = chunk.length % charsPerLine || charsPerLine;
-      continue;
-    }
-    if (used + chunk.length > charsPerLine) {
-      lines += 1;
-      if (chunk.length > charsPerLine) {
-        const internal = Math.ceil(chunk.length / charsPerLine);
-        lines += internal - 1;
-        used = chunk.length % charsPerLine || charsPerLine;
-      } else {
-        used = chunk.length;
-      }
-    } else {
-      used += chunk.length;
-    }
-  }
-  return Math.max(1, lines);
+let measureEl: HTMLDivElement | null = null;
+function getMeasureEl(): HTMLDivElement {
+  if (measureEl) return measureEl;
+  const el = document.createElement("div");
+  el.setAttribute("aria-hidden", "true");
+  el.style.position = "fixed";
+  el.style.left = "-9999px";
+  el.style.top = "-9999px";
+  el.style.fontFamily =
+    "Geist Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+  el.style.fontSize = "11px";
+  el.style.fontWeight = "500";
+  el.style.lineHeight = "16px";
+  el.style.letterSpacing = "0.04em";
+  el.style.whiteSpace = "normal";
+  el.style.overflowWrap = "anywhere";
+  el.style.wordBreak = "break-word";
+  el.style.visibility = "hidden";
+  el.style.padding = "0";
+  el.style.margin = "0";
+  el.style.boxSizing = "border-box";
+  document.body.appendChild(el);
+  measureEl = el;
+  return el;
+}
+
+function measureLabelHeight(text: string, widthPx: number): number {
+  const el = getMeasureEl();
+  el.style.width = `${widthPx}px`;
+  el.textContent = text;
+  // +1 so sub-pixel rounding never lands a hair short of the browser's
+  // actual render. Cost of rounding up is one fewer pixel of empty
+  // space; cost of rounding down is a clipped action row.
+  return Math.ceil(el.getBoundingClientRect().height) + 1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

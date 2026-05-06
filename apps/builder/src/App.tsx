@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Dashboard } from "@dashboard-builder/render";
-import { computeUrl, fetchProgramGraph } from "./api";
-import { emptyDraft, exportSpec, type Draft } from "./draft";
+import { fetchProgramGraph } from "./api";
+import { emptyDraft, type Draft } from "./draft";
 import { STEPS, StepHeader, StepIndicator, StepNav, type StepId } from "./Wizard";
 import { ProgramStep } from "./steps/ProgramStep";
 import { OutputStep } from "./steps/OutputStep";
 import { InputStep } from "./steps/InputStep";
+import { GraphStep } from "./steps/GraphStep";
 import { PublishStep } from "./steps/PublishStep";
 import {
   defaultFor,
@@ -17,11 +17,9 @@ import {
   widgetFor,
 } from "./draft";
 import { validateOutput } from "./validators";
-// ProgramPicker (modal) is no longer used — Step I now has an inline list.
 
 const DRAFT_STORAGE_KEY = "dashboard-builder.draft";
 const STEP_STORAGE_KEY = "dashboard-builder.step";
-const PREVIEW_STORAGE_KEY = "dashboard-builder.previewCollapsed";
 
 function loadDraft(): Draft {
   try {
@@ -35,27 +33,28 @@ function loadDraft(): Draft {
 
 function loadStep(): StepId {
   const raw = localStorage.getItem(STEP_STORAGE_KEY);
-  if (raw === "program" || raw === "outputs" || raw === "inputs" || raw === "publish") return raw;
+  if (
+    raw === "program" ||
+    raw === "outputs" ||
+    raw === "inputs" ||
+    raw === "graph" ||
+    raw === "publish"
+  )
+    return raw;
   return "program";
 }
 
 export function App() {
   const [draft, setDraft] = useState<Draft>(loadDraft);
   const [stepId, setStepId] = useState<StepId>(loadStep);
-  const [previewCollapsed, setPreviewCollapsed] = useState<boolean>(
-    () => localStorage.getItem(PREVIEW_STORAGE_KEY) === "1",
-  );
 
-  // Persist draft + step + collapse state across refreshes.
+  // Persist draft + step across refreshes.
   useEffect(() => {
     localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
   }, [draft]);
   useEffect(() => {
     localStorage.setItem(STEP_STORAGE_KEY, stepId);
   }, [stepId]);
-  useEffect(() => {
-    localStorage.setItem(PREVIEW_STORAGE_KEY, previewCollapsed ? "1" : "0");
-  }, [previewCollapsed]);
 
   // On mount, if the persisted draft already has a program selected, re-fetch
   // the graph from compute. The graph schema can evolve between sessions
@@ -102,9 +101,6 @@ export function App() {
     const idx = step.index;
     if (idx > 1) setStepId(STEPS[idx - 2]!.id);
   }
-
-  const spec = exportSpec(draft);
-  const previewable = !!spec && spec.outputs.length > 0;
 
   /**
    * Builder hook for "+ Expose" buttons in the graph and input picker.
@@ -199,10 +195,9 @@ export function App() {
 
   const selectedOutputIds = new Set(draft.outputs.map((o) => o.legalId));
 
-  /** Toggle whether a rule is selected as a dashboard output. Used by
-   *  the "+ OUTPUT" / "− OUTPUT" affordance on rule nodes in the graph
-   *  during Step II — promotes an intermediate computation step or
-   *  demotes a previously-promoted one. */
+  /** Toggle whether a rule is a dashboard output. Wired into the Step IV
+   *  graph's "+ output" / "− output" affordance on rule nodes — same
+   *  semantics as the OutputStep picker but reachable from the graph. */
   function handleAddOutput(legalId: string) {
     if (!draft.graph) return;
     if (selectedOutputIds.has(legalId)) {
@@ -211,10 +206,6 @@ export function App() {
     }
     const rule = draft.graph.rules.find((r) => r.legalId === legalId);
     if (!rule) return;
-    // Same static check as the OutputStep picker — silently no-op on a
-    // rule that would break compute. The picker's disabled chip explains
-    // why; we get here from the graph's "+ output" affordance which has
-    // less surface to message.
     if (validateOutput(rule, draft, draft.graph.rules)) return;
     setDraft({ ...draft, outputs: [...draft.outputs, selectOutput(rule)] });
   }
@@ -250,7 +241,7 @@ export function App() {
       </header>
 
       <div
-        className={`workspace ${previewCollapsed || stepId === "publish" ? "preview-collapsed" : ""}`}
+        className={`workspace ${stepId === "program" ? "wizard-centered" : ""}`}
       >
         <main className="wizard-pane">
           <StepHeader step={step} />
@@ -259,6 +250,26 @@ export function App() {
             {stepId === "program" && <ProgramStep draft={draft} setDraft={setDraft} />}
             {stepId === "outputs" && <OutputStep draft={draft} setDraft={setDraft} />}
             {stepId === "inputs" && <InputStep draft={draft} setDraft={setDraft} />}
+            {stepId === "graph" && (
+              <GraphStep
+                draft={draft}
+                exposedInputIds={exposedInputIds}
+                selectedOutputIds={selectedOutputIds}
+                onExposeInput={handleExposeInput}
+                onAddOutput={handleAddOutput}
+                parameterRules={(draft.graph?.rules ?? [])
+                  .filter((r) => r.kind === "parameter")
+                  .map((r) => ({
+                    legalId: r.legalId,
+                    name: r.name,
+                    fileLegalId: r.fileLegalId,
+                    source: r.source,
+                    unit: r.unit,
+                    dtype: r.dtype,
+                    formula: r.formula,
+                  }))}
+              />
+            )}
             {stepId === "publish" && (
               <PublishStep
                 draft={draft}
@@ -277,68 +288,6 @@ export function App() {
             isLast={step.index === STEPS.length}
           />
         </main>
-
-        {stepId !== "publish" && (
-          <aside className="preview-pane">
-            {previewCollapsed ? (
-              <button
-                className="preview-collapsed-handle"
-                onClick={() => setPreviewCollapsed(false)}
-                title="Expand computation graph"
-                aria-label="Expand computation graph"
-              >
-                <span className="chevron">‹</span>
-                <span className="rail-label">Computation graph</span>
-              </button>
-            ) : (
-              <>
-                <div className="preview-title">
-                  <span className="eyebrow">Computation graph</span>
-                  <button
-                    className="btn ghost"
-                    onClick={() => setPreviewCollapsed(true)}
-                    title="Collapse computation graph"
-                    aria-label="Collapse computation graph"
-                  >
-                    ›
-                  </button>
-                </div>
-                {previewable && spec ? (
-                  <Dashboard
-                    spec={spec}
-                    variant="embedded"
-                    computeUrl={computeUrl}
-                    autoCompute
-                    previewMode="structure"
-                    onExposeInput={stepId === "inputs" ? handleExposeInput : undefined}
-                    exposedInputIds={exposedInputIds}
-                    onAddOutput={stepId === "outputs" ? handleAddOutput : undefined}
-                    selectedOutputIds={selectedOutputIds}
-                    parameterRules={(draft.graph?.rules ?? [])
-                      .filter((r) => r.kind === "parameter")
-                      .map((r) => ({
-                        legalId: r.legalId,
-                        name: r.name,
-                        fileLegalId: r.fileLegalId,
-                        source: r.source,
-                        unit: r.unit,
-                        dtype: r.dtype,
-                        formula: r.formula,
-                      }))}
-                  />
-                ) : (
-                  <div className="preview-empty">
-                    {!draft.program
-                      ? "Pick a program to begin."
-                      : draft.outputs.length === 0
-                        ? "Pick at least one output to see its graph."
-                        : "Graph will appear here."}
-                  </div>
-                )}
-              </>
-            )}
-          </aside>
-        )}
       </div>
     </div>
   );

@@ -2844,7 +2844,17 @@ body, html, #root {
 .irg-output.irg-fails { border-color: var(--color-error); }
 .irg-output.irg-numeric { border-color: var(--color-accent); }
 
-/* Input node — parallelogram-ish via skew, color by source */
+/* Input node — clearly rounded so the user can read shape alone to
+   tell inputs from squared rules / outputs at a glance. */
+
+/* The pill shape eats into horizontal space at the rounded corners, so
+   we widen the side padding on inputs only — gives the eyebrow and
+   action row clearance from the curved edge. */
+.irg-input {
+  border-radius: 22px;
+  padding-left: 20px;
+  padding-right: 20px;
+}
 
 .irg-input.irg-input-user {
   border-color: var(--color-success);
@@ -3030,10 +3040,35 @@ body, html, #root {
   display: none;
 }
 
-/* Selected node treatment */
+/* Strip React Flow's default node chrome — its built-in stylesheet
+   draws a rectangular border + background on every .react-flow__node
+   wrapper, which shows through behind the rounded input pills as a
+   squared outline. We render our own borders inside .irg-node, so the
+   wrapper should be invisible. */
+.react-flow__node {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+.react-flow__node:focus,
+.react-flow__node:focus-visible,
+.react-flow__node.selected {
+  outline: none !important;
+  box-shadow: none !important;
+}
 
+/* Selected node treatment — apply the accent ring on the actual
+   .irg-node inside, so the ring follows the rounded input shape. */
 .react-flow__node.selected .irg-node {
   box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+.react-flow__node.selected .irg-input {
+  /* Match the accent ring's curvature to the input's pill border-radius
+     by relying on .irg-node's box-shadow above (which inherits the
+     element's border-radius). No extra rule needed; this comment just
+     records the intent for future reference. */
 }
 
 /* ── Structure-only preview (builder steps II/III) ── */

@@ -12,7 +12,7 @@
 
 import type { Draft } from "./draft";
 
-export type StepId = "program" | "outputs" | "inputs" | "publish";
+export type StepId = "program" | "outputs" | "inputs" | "graph" | "publish";
 
 export interface StepDef {
   id: StepId;
@@ -72,15 +72,30 @@ export const STEPS: StepDef[] = [
     canContinue: () => true,
   },
   {
-    id: "publish",
+    id: "graph",
     ordinal: "IV",
     index: 4,
-    label: "Demo",
+    label: "Graph",
+    title: <>How it <em>computes</em></>,
+    lede: (
+      <>
+        Trace every output back to the rules that feed it and the inputs
+        that drive them. Click a node to add or remove it; hover for the
+        legal citation and source.
+      </>
+    ),
+    canContinue: () => true,
+  },
+  {
+    id: "publish",
+    ordinal: "V",
+    index: 5,
+    label: "Preview",
     title: <>Name and <em>export</em></>,
     lede: (
       <>
-        Preview the dashboard the end-user will see, and grab the spec as
-        YAML or JSON to embed wherever you ship from.
+        Try the calculator the way the end-user will see it, and grab the
+        spec as YAML or JSON to embed wherever you ship from.
       </>
     ),
     canContinue: () => true,
