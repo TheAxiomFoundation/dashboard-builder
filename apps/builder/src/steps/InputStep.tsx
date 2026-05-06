@@ -3,7 +3,7 @@ import type { Draft, InputExposure, RelationExposure } from "../draft";
 import { dtypeFor, exposeInput, exposeRelation, humanize, widgetFor, defaultFor } from "../draft";
 import type { InputGraphNode, RelationGraphNode } from "../api";
 import { fetchTransitive } from "../api";
-import { axiomAppUrl, humanizeCitation } from "../citations";
+import { axiomAppUrl, documentInfo, humanizeCitation } from "../citations";
 
 interface Props {
   draft: Draft;
@@ -135,18 +135,49 @@ export function InputStep({ draft, setDraft }: Props) {
     [availableRelationCatalog],
   );
 
-  // Group deeper inputs by their source file (humanized citation).
-  const deeperGroups = useMemo(() => {
-    const map = new Map<string, DepEntry<InputGraphNode>[]>();
+  // Two-level rollup of deeper inputs: document → section → entries.
+  // Mirrors the OutputStep treatment so the user sees ~4 documents
+  // (10 CCR 2506-1, 7 CFR, 7 USC, USDA policy …) instead of 100+
+  // sibling sections. The user's chosen program file lands in
+  // "Composition (this program)" so it stays distinct from regs.
+  const ownFileLegalId = draft.program
+    ? `${draft.program.repo.replace(/^rules-/, "")}:${draft.program.path.replace(/\.yaml$/, "")}`
+    : "";
+
+  interface InputSection {
+    key: string;
+    items: DepEntry<InputGraphNode>[];
+  }
+  interface InputDocument {
+    key: string;
+    label: string;
+    sections: InputSection[];
+    totalItems: number;
+  }
+  const deeperDocuments = useMemo<InputDocument[]>(() => {
+    const byDoc = new Map<
+      string,
+      { label: string; sections: Map<string, DepEntry<InputGraphNode>[]> }
+    >();
     for (const entry of deeperInputs) {
-      const key = humanizeCitation(entry.node.fileLegalId);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(entry);
+      const { key, label } = documentInfo(entry.node.fileLegalId, ownFileLegalId);
+      if (!byDoc.has(key)) byDoc.set(key, { label, sections: new Map() });
+      const doc = byDoc.get(key)!;
+      const sectionKey = humanizeCitation(entry.node.fileLegalId);
+      if (!doc.sections.has(sectionKey)) doc.sections.set(sectionKey, []);
+      doc.sections.get(sectionKey)!.push(entry);
     }
-    return [...map.entries()]
-      .map(([key, items]) => ({ key, items }))
-      .sort((a, b) => a.key.localeCompare(b.key));
-  }, [deeperInputs]);
+    const docs: InputDocument[] = [...byDoc.entries()].map(([key, v]) => ({
+      key,
+      label: v.label,
+      sections: [...v.sections.entries()]
+        .map(([sk, items]) => ({ key: sk, items }))
+        .sort((a, b) => a.key.localeCompare(b.key)),
+      totalItems: [...v.sections.values()].reduce((n, items) => n + items.length, 0),
+    }));
+    docs.sort((a, b) => b.totalItems - a.totalItems);
+    return docs;
+  }, [deeperInputs, ownFileLegalId]);
 
   const exposedInputIds = new Set(draft.inputs.map((i) => i.legalId));
   const exposedRelationIds = new Set(draft.relations.map((r) => r.legalId));
@@ -269,113 +300,32 @@ export function InputStep({ draft, setDraft }: Props) {
     );
   }
 
+  const hasSidebar = exposedCount > 0;
   return (
-    <div className="step-body">
-      {exposedCount > 0 && (
-        <section className="selected-panel">
-          <header className="selected-panel-head">
-            <span className="selected-panel-eyebrow">
-              Exposed inputs · <strong>{exposedCount}</strong>
-            </span>
-          </header>
-          <div className="rule-list">
-            {draft.relations.map((rel) => (
-              <div key={`rel:${rel.legalId}`}>
-                <div className="chip chip-selected">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked
-                      onChange={() => {
-                        const node = draft.graph?.relations.find(
-                          (r) => r.legalId === rel.legalId,
-                        );
-                        if (node) toggleRelation(node);
-                      }}
-                    />
-                    <span className="label">
-                      {rel.label}
-                      <span
-                        style={{
-                          fontFamily: "var(--f-serif)",
-                          fontStyle: "italic",
-                          color: "var(--color-ink-muted)",
-                          fontWeight: 400,
-                          marginLeft: 6,
-                          fontSize: 12,
-                        }}
-                      >
-                        relation · {rel.memberInputs.length} per-member field
-                        {rel.memberInputs.length === 1 ? "" : "s"}
-                      </span>
-                    </span>
-                  </label>
-                </div>
-                {/* Each per-member input nested under the relation so the
-                    user sees what's actually exposed at the leaf level
-                    and can uncheck individual fields directly. */}
-                {rel.memberInputs.map((member) => (
-                  <div
-                    key={`mem:${member.legalId}`}
-                    className="chip chip-selected"
-                    style={{ marginLeft: 24 }}
-                  >
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked
-                        onChange={() => {
-                          const node = draft.graph?.inputs.find(
-                            (i) => i.legalId === member.legalId,
-                          );
-                          if (node) toggleInput(node);
-                        }}
-                      />
-                      <span className="label">
-                        {member.label}
-                        <span className="per-member-tag">per member</span>
-                      </span>
-                    </label>
-                  </div>
-                ))}
-              </div>
-            ))}
-            {draft.inputs.map((inp) => (
-              <div key={`inp:${inp.legalId}`} className="chip chip-selected">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked
-                    onChange={() => {
-                      const node = draft.graph?.inputs.find((i) => i.legalId === inp.legalId);
-                      if (node) toggleInput(node);
-                    }}
-                  />
-                  <span className="label">{inp.label}</span>
-                </label>
-              </div>
-            ))}
+    <div className={`step-body ${hasSidebar ? "step-with-sidebar" : ""}`}>
+      <div className="step-main">
+      {/* Hide the search bar entirely once every reachable input is
+          exposed — there's nothing left to find, and the empty
+          "0 reachable" caption is just visual noise at that point. */}
+      {availableInputCatalog.length + availableRelationCatalog.length > 0 && (
+        <div className="inline-search">
+          <input
+            type="search"
+            className="inline-search-input"
+            placeholder={`Search ${totalRelevant} reachable inputs…`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="summary-stats">
+            <span><strong>{exposedCount}</strong> exposed</span>
+            {q ? (
+              <span>{matchedInputs.length + matchedRelations.length} matching</span>
+            ) : (
+              <span>{totalRelevant} reachable</span>
+            )}
           </div>
-        </section>
-      )}
-
-      <div className="inline-search">
-        <input
-          type="search"
-          className="inline-search-input"
-          placeholder={`Search ${totalRelevant} reachable inputs…`}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <div className="summary-stats">
-          <span><strong>{exposedCount}</strong> exposed</span>
-          {q ? (
-            <span>{matchedInputs.length + matchedRelations.length} matching</span>
-          ) : (
-            <span>{totalRelevant} reachable</span>
-          )}
         </div>
-      </div>
+      )}
 
       {q ? (
         // Search results — flat.
@@ -494,72 +444,158 @@ export function InputStep({ draft, setDraft }: Props) {
             </section>
           )}
 
-          {deeperGroups.map((group) => {
-            const open = isGroupOpen(group.key, false);
-            const sample = group.items.slice(0, 3).map((e) => humanize(e.node.name));
-            const overflow = group.items.length - sample.length;
-            const preview =
-              sample.join(" · ") + (overflow > 0 ? ` · +${overflow} more` : "");
-            const fileLegalId = group.items[0]?.node.fileLegalId;
-            const appUrl = fileLegalId ? axiomAppUrl(fileLegalId) : null;
+          {/* Document-level rollups for the deeper plumbing — one
+              entry per source document (10 CCR 2506-1, 7 CFR, …) with
+              sections nested as sub-headers. */}
+          {deeperDocuments.map((doc) => {
+            const open = isGroupOpen(doc.key, false);
             return (
-              <section key={group.key} className="rule-group">
-                <div className="rule-group-head-row">
-                  <button
-                    type="button"
-                    className="rule-group-head"
-                    onClick={() => toggleGroupOpen(group.key, false)}
-                    aria-expanded={open}
-                  >
-                    <span className="rule-group-chevron">{open ? "▾" : "▸"}</span>
-                    <span className="rule-group-text">
-                      <span className="rule-group-label">{group.key}</span>
-                      <span className="rule-group-preview">{preview}</span>
-                    </span>
-                    <span className="rule-group-meta">
-                      <span className="group-rule-count">{group.items.length}</span>
-                    </span>
-                  </button>
-                  {appUrl && (
-                    <a
-                      className="rule-group-source-link"
-                      href={appUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Open this section in the Axiom app"
-                      aria-label="Open in Axiom app"
-                    >
-                      ↗
-                    </a>
-                  )}
-                </div>
+              <section key={doc.key} className="rule-doc">
+                <button
+                  type="button"
+                  className="rule-doc-head"
+                  onClick={() => toggleGroupOpen(doc.key, false)}
+                  aria-expanded={open}
+                >
+                  <span className="rule-group-chevron">{open ? "▾" : "▸"}</span>
+                  <span className="rule-doc-label">{doc.label}</span>
+                  <span className="rule-doc-meta">
+                    {doc.totalItems} input{doc.totalItems === 1 ? "" : "s"}
+                    {" · "}
+                    {doc.sections.length} section{doc.sections.length === 1 ? "" : "s"}
+                  </span>
+                </button>
                 {open && (
-                  <div className="rule-list rule-list-grouped">
-                    {group.items.map(({ node, depth }) => (
-                      <InputRow
-                        key={node.legalId}
-                        node={node}
-                        depth={depth}
-                        exposed={
-                          node.entity === "Person"
-                            ? exposedMemberInputIds.has(node.legalId)
-                            : exposedInputIds.has(node.legalId)
-                        }
-                        exposure={draft.inputs.find((i) => i.legalId === node.legalId)}
-                        onToggle={() => toggleInput(node)}
-                        onPatch={(p) => patchInput(node.legalId, p)}
-                        isEditing={editingId === node.legalId}
-                        onEditToggle={() =>
-                          setEditingId(editingId === node.legalId ? null : node.legalId)
-                        }
-                      />
-                    ))}
+                  <div className="rule-doc-body">
+                    {doc.sections.map((sec) => {
+                      const fileLegalId = sec.items[0]?.node.fileLegalId;
+                      const appUrl = fileLegalId ? axiomAppUrl(fileLegalId) : null;
+                      return (
+                        <div key={sec.key} className="rule-section">
+                          <div className="rule-section-head">
+                            <span className="rule-section-label">{sec.key}</span>
+                            <span className="rule-section-meta">{sec.items.length}</span>
+                            {appUrl && (
+                              <a
+                                className="rule-group-source-link"
+                                href={appUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="Open this section in the Axiom app"
+                                aria-label="Open in Axiom app"
+                              >
+                                ↗
+                              </a>
+                            )}
+                          </div>
+                          <div className="rule-list rule-list-grouped">
+                            {sec.items.map(({ node, depth }) => (
+                              <InputRow
+                                key={node.legalId}
+                                node={node}
+                                depth={depth}
+                                exposed={
+                                  node.entity === "Person"
+                                    ? exposedMemberInputIds.has(node.legalId)
+                                    : exposedInputIds.has(node.legalId)
+                                }
+                                exposure={draft.inputs.find((i) => i.legalId === node.legalId)}
+                                onToggle={() => toggleInput(node)}
+                                onPatch={(p) => patchInput(node.legalId, p)}
+                                isEditing={editingId === node.legalId}
+                                onEditToggle={() =>
+                                  setEditingId(editingId === node.legalId ? null : node.legalId)
+                                }
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </section>
             );
           })}
         </>
+      )}
+      </div>
+      {hasSidebar && (
+        <aside className="step-sidebar">
+          <section className="selected-panel">
+            <header className="selected-panel-head">
+              <span className="selected-panel-eyebrow">
+                Exposed inputs · <strong>{exposedCount}</strong>
+              </span>
+            </header>
+            <div className="selected-pills">
+              {draft.relations.map((rel) => (
+                <span key={`rel:${rel.legalId}`} className="selected-pill">
+                  <span className="label" title={rel.label}>{rel.label}</span>
+                  <span className="meta">
+                    · {rel.memberInputs.length} per-member field
+                    {rel.memberInputs.length === 1 ? "" : "s"}
+                  </span>
+                  <button
+                    className="selected-pill-remove"
+                    title="Remove"
+                    aria-label="Remove"
+                    onClick={() => {
+                      const node = draft.graph?.relations.find(
+                        (r) => r.legalId === rel.legalId,
+                      );
+                      if (node) toggleRelation(node);
+                    }}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {draft.relations.flatMap((rel) =>
+                rel.memberInputs.map((member) => (
+                  <span
+                    key={`mem:${member.legalId}`}
+                    className="selected-pill selected-pill-indent"
+                  >
+                    <span className="label" title={member.label}>{member.label}</span>
+                    <span className="meta">· per member</span>
+                    <button
+                      className="selected-pill-remove"
+                      title="Remove"
+                      aria-label="Remove"
+                      onClick={() => {
+                        const node = draft.graph?.inputs.find(
+                          (i) => i.legalId === member.legalId,
+                        );
+                        if (node) toggleInput(node);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )),
+              )}
+              {draft.inputs.map((inp) => (
+                <span key={`inp:${inp.legalId}`} className="selected-pill">
+                  <span className="label" title={inp.label}>{inp.label}</span>
+                  <button
+                    className="selected-pill-remove"
+                    title="Remove"
+                    aria-label="Remove"
+                    onClick={() => {
+                      const node = draft.graph?.inputs.find(
+                        (i) => i.legalId === inp.legalId,
+                      );
+                      if (node) toggleInput(node);
+                    }}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          </section>
+        </aside>
       )}
     </div>
   );

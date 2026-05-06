@@ -23,7 +23,12 @@ interface Props {
  * YAML or JSON — there's no server-side publish flow; this step is purely
  * a preview + handoff of the artefact.
  */
-export function PublishStep({ draft, setDraft, onExposeInput, exposedInputIds }: Props) {
+export function PublishStep({
+  draft,
+  setDraft,
+  onExposeInput,
+  exposedInputIds,
+}: Props) {
   const spec = exportSpec(draft);
   const ready = !!spec && spec.outputs.length > 0;
   const [copied, setCopied] = useState<"yaml" | "json" | null>(null);
@@ -50,6 +55,10 @@ export function PublishStep({ draft, setDraft, onExposeInput, exposedInputIds }:
 
   return (
     <div className="step-body publish-step">
+      {/* Meta editor first — title / period / description are what flow
+          into both the live preview and the exported spec, so editing
+          them at the top means the user sees the change in the preview
+          right below before they grab the YAML / JSON. */}
       <div className="publish-bar">
         <div className="meta-grid">
           <div className="field">
@@ -81,7 +90,35 @@ export function PublishStep({ draft, setDraft, onExposeInput, exposedInputIds }:
             }
           />
         </div>
+      </div>
 
+      <div className="publish-divider">
+        <span>Preview · what your users will see</span>
+      </div>
+
+      {ready && spec ? (
+        <div className="publish-preview">
+          <Dashboard
+            spec={spec}
+            variant="page"
+            computeUrl={computeUrl}
+            autoCompute
+            previewMode="values"
+            onExposeInput={onExposeInput}
+            exposedInputIds={exposedInputIds}
+          />
+        </div>
+      ) : (
+        <div className="empty-hint">
+          Pick at least one output (step II) before previewing.
+        </div>
+      )}
+
+      <div className="publish-divider">
+        <span>Export · grab the spec</span>
+      </div>
+
+      <div className="publish-bar">
         <div className="export-grid">
           <div className="export-format">
             <div className="export-format-label">YAML</div>
@@ -123,27 +160,6 @@ export function PublishStep({ draft, setDraft, onExposeInput, exposedInputIds }:
           </div>
         </div>
       </div>
-
-      <div className="publish-divider">
-        <span>Demo · this is what your users will see</span>
-      </div>
-
-      {ready && spec ? (
-        <div className="publish-preview">
-          <Dashboard
-            spec={spec}
-            variant="page"
-            computeUrl={computeUrl}
-            autoCompute
-            onExposeInput={onExposeInput}
-            exposedInputIds={exposedInputIds}
-          />
-        </div>
-      ) : (
-        <div className="empty-hint">
-          Pick at least one output (step II) before previewing.
-        </div>
-      )}
     </div>
   );
 }

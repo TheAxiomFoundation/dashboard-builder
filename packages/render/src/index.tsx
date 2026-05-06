@@ -1,4 +1,4 @@
-export { Dashboard } from "./Dashboard";
+export { Dashboard, type ParameterRule } from "./Dashboard";
 export { Field } from "./Field";
 export { Results } from "./Results";
 export { initialState, isVisible, defaultMemberValues } from "./form-state";

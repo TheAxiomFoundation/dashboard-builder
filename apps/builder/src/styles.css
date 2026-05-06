@@ -216,23 +216,103 @@ body::before {
    ═══════════════════════════════════════════ */
 
 .workspace {
+  /* The right-rail computation graph used to render here in Steps II/III.
+     We retired it — graph now lives inside Step IV behind the
+     Demo / Graph toggle, so the wizard pane gets the full width. */
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
-  transition: grid-template-columns 220ms var(--ease-out);
 }
 
-.workspace.preview-collapsed {
-  grid-template-columns: minmax(0, 1fr) 44px;
+/* Step I (program selection) doesn't render a preview pane at all — the
+   workspace becomes a single column. We center the wizard horizontally
+   so the program list doesn't drift to the left of a wide screen, and
+   re-tune the hero typography to feel like a landing page rather than
+   a wizard step. */
+.workspace.wizard-centered {
+  grid-template-columns: minmax(0, 1fr);
+}
+.workspace.wizard-centered .wizard-pane {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 96px 56px 64px;
+  gap: 48px;
+}
+
+/* Center-align the step header so the eyebrow / heading / lede stack
+   reads as a hero section. */
+.workspace.wizard-centered .step-content > header,
+.workspace.wizard-centered > main > .step-content header,
+.workspace.wizard-centered .wizard-pane > header,
+.workspace.wizard-centered .step-content header {
+  text-align: center;
+}
+.workspace.wizard-centered .step-eyebrow {
+  justify-content: center;
+}
+.workspace.wizard-centered .step-heading {
+  font-size: clamp(2.2rem, 3.6vw, 3.2rem);
+  margin-top: 24px;
+  margin-bottom: 24px;
+  line-height: 1.1;
+}
+.workspace.wizard-centered .step-lede {
+  font-size: 18px;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 56ch;
+  line-height: 1.65;
+}
+
+/* Roomier program list on the landing — feels like a single confident
+   call-to-action rather than a search result. */
+.step-program-landing {
+  align-items: stretch;
+}
+.step-program-landing .program-list {
+  margin-top: 24px;
+}
+
+.program-pilot-note {
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+  text-align: center;
+  margin: 8px auto 0;
+  max-width: 56ch;
+}
+
+.program-back-btn {
+  align-self: center;
+  margin-top: 8px;
+}
+
+.program-change-btn {
+  align-self: center;
+  margin-top: 4px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 .wizard-pane {
-  padding: 48px 56px 64px;
-  overflow-y: auto;
-  max-height: calc(100vh - 65px);
+  padding: 48px 64px 64px;
   display: flex;
   flex-direction: column;
   gap: 32px;
+  /* Cap the wizard width on very wide screens so the picker chips
+     don't stretch into 2000px-wide rows, but allow plenty of room for
+     the two-column step (picker + sticky sidebar). Step I overrides
+     this with its own narrower max-width via .wizard-centered. */
+  max-width: 1480px;
+  width: 100%;
+  margin: 0 auto;
+  /* No max-height / overflow here — the page is the single scroll
+     container. (Used to be a per-pane scroll when the right rail was
+     alongside; that rail is gone, so we can just flow.) */
 }
 
 .preview-pane {
@@ -363,6 +443,62 @@ body::before {
   padding: 32px;
 }
 
+/* Demo / Graph segmented toggle in Step IV. Sits centered inside the
+   publish-divider, replacing the static "Demo · this is what your users
+   will see" caption when the user can switch views. */
+.publish-divider-toggle {
+  margin: 16px 0 32px;
+}
+.publish-divider-toggle::before,
+.publish-divider-toggle::after {
+  background: var(--color-rule);
+}
+.preview-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-rule);
+  border-radius: 4px;
+  background: var(--color-paper-elevated);
+  overflow: hidden;
+}
+.preview-view-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 22px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  transition: background 120ms, color 120ms;
+}
+.preview-view-tab + .preview-view-tab {
+  border-left: 1px solid var(--color-rule);
+}
+.preview-view-tab:hover {
+  background: var(--color-rule-subtle);
+  color: var(--color-ink);
+}
+.preview-view-tab.is-active {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+.preview-view-tab-sub {
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: inherit;
+  opacity: 0.75;
+}
+
 .publish-preview .dashboard {
   font-size: 15px;
 }
@@ -376,6 +512,13 @@ body::before {
 /* ═══════════════════════════════════════════
    Step content — eyebrow, heading, body
    ═══════════════════════════════════════════ */
+
+/* Centered hero block at the top of every step. The eyebrow / heading /
+   lede stack reads as a section title; the picker / form / preview
+   below keeps its own (left-aligned) layout. */
+.wizard-pane > header {
+  text-align: center;
+}
 
 .step-eyebrow {
   display: inline-flex;
@@ -409,12 +552,19 @@ body::before {
 .step-heading {
   font-family: var(--f-display);
   font-weight: 300;
-  font-size: clamp(1.6rem, 2.4vw, 2rem);
-  line-height: 1.15;
-  letter-spacing: 0.06em;
+  /* Hero-scale on every step, not just Step I. The picker / inputs / demo
+     pages have plenty of room now that the right rail is gone, and the
+     larger heading anchors each step as its own section rather than a
+     small pip stacked above a giant card. Centered so the user reads
+     each step's title before scanning the (typically left-aligned)
+     content below. */
+  font-size: clamp(1.9rem, 3vw, 2.6rem);
+  line-height: 1.1;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--color-ink);
-  margin: 0 0 12px;
+  margin: 16px 0 18px;
+  text-align: center;
 }
 
 .step-heading em {
@@ -428,11 +578,12 @@ body::before {
 
 .step-lede {
   font-family: var(--f-serif);
-  font-size: 16px;
-  line-height: 1.55;
+  font-size: 17px;
+  line-height: 1.6;
   color: var(--color-ink-secondary);
-  max-width: 56ch;
-  margin: 0 0 28px;
+  max-width: 60ch;
+  margin: 0 auto 32px;
+  text-align: center;
 }
 
 .step-lede em { color: var(--color-accent); font-style: italic; }
@@ -551,12 +702,24 @@ body::before {
    ═══════════════════════════════════════════ */
 
 .wizard-nav {
+  /* Stuck to the bottom of the viewport so Back / Continue are always
+     reachable, even on the long inputs page. position: sticky keeps it
+     in normal flow (so the wizard pane reserves room for it) but
+     pinned to bottom: 0 once the user scrolls past the natural
+     position. The translucent paper background with backdrop-blur
+     lets a hint of the content show through behind it. */
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-top: 24px;
+  padding: 16px 0 18px;
   border-top: 1px solid var(--color-rule);
   margin-top: 12px;
+  background: rgba(250, 249, 246, 0.92);
+  backdrop-filter: saturate(140%) blur(8px);
+  -webkit-backdrop-filter: saturate(140%) blur(8px);
 }
 
 .wizard-nav .step-progress {
@@ -1191,6 +1354,122 @@ body::before {
   color: var(--color-ink);
 }
 
+/* Two-column layout for the picker steps: main picker on the left,
+   sticky "selected" sidebar on the right. The sidebar pins to the
+   top of the viewport on scroll so the user always sees what
+   they've picked without scrolling back up. */
+.step-with-sidebar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 40px;
+  align-items: start;
+}
+.step-with-sidebar .step-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.step-sidebar {
+  position: sticky;
+  top: 24px;
+}
+.step-sidebar .selected-panel {
+  margin-bottom: 0;
+}
+
+/* Narrow viewports — collapse to a single column with the sidebar
+   stacked on top so the user still sees their picks. */
+@media (max-width: 900px) {
+  .step-with-sidebar {
+    grid-template-columns: 1fr;
+  }
+  .step-sidebar {
+    position: static;
+    order: -1;
+  }
+}
+
+/* Compact pill row for the "selected outputs" / "exposed inputs"
+   summaries. Each pick is a small accent-tinted chip rather than a
+   heavy bordered row — feels like a quick tag list of what's already
+   in the dashboard, not a primary editing surface. */
+.selected-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.selected-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid var(--color-accent-line);
+  border-radius: 999px;
+  background: var(--color-accent-light);
+  font-family: var(--f-body);
+  font-size: 12.5px;
+  color: var(--color-ink);
+  max-width: 100%;
+  cursor: default;
+}
+.selected-pill .label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+.selected-pill .meta {
+  font-family: var(--f-serif);
+  font-style: italic;
+  color: var(--color-ink-muted);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+.selected-pill-indent {
+  margin-left: 18px;
+  background: transparent;
+  border-color: var(--color-rule);
+}
+
+.selected-pill-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.selected-pill-remove:hover {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.selected-pill-edit {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+  border: 0;
+  background: transparent;
+  padding: 0 2px;
+  cursor: pointer;
+  transition: color 120ms;
+}
+.selected-pill-edit:hover {
+  color: var(--color-accent);
+}
+
 /* Inline search above a list (used by output picker) */
 
 .inline-search {
@@ -1363,6 +1642,116 @@ body::before {
   color: var(--color-ink-muted);
 }
 
+/* ── Document-level rollups (one per source: 10 CCR 2506-1, 7 CFR …) ──
+   Section-level groups now nest inside rather than living as siblings,
+   so the user sees ~4 documents instead of 116 sibling sections. */
+
+.rule-doc {
+  background: var(--color-paper-elevated);
+  border: 1px solid var(--color-rule);
+  border-radius: 4px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.rule-doc-headlines {
+  border-color: var(--color-accent-line);
+  background: var(--color-paper-elevated);
+}
+.rule-doc-headlines .rule-doc-head {
+  background: var(--color-accent-light);
+}
+
+.rule-doc-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border: none;
+  background: var(--color-rule-subtle);
+  border-bottom: 1px solid var(--color-rule);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms;
+}
+.rule-doc-head:hover {
+  background: var(--color-accent-light);
+}
+.rule-doc-head-static {
+  cursor: default;
+  background: var(--color-accent-light);
+}
+.rule-doc-head-static:hover {
+  background: var(--color-accent-light);
+}
+
+.rule-doc-label {
+  font-family: var(--f-display);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--color-ink);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-doc-meta {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+  flex-shrink: 0;
+}
+
+.rule-doc-body {
+  padding: 4px 0 8px;
+}
+
+.rule-section {
+  border-top: 1px solid var(--color-rule-subtle);
+}
+.rule-doc-body > .rule-section:first-child {
+  border-top: 0;
+}
+
+.rule-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px 6px;
+}
+
+.rule-section-label {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--color-ink-secondary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-section-meta {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--color-ink-muted);
+  flex-shrink: 0;
+}
+
+.rule-section .rule-list {
+  padding: 0 8px 8px;
+}
+
 /* ── Single dtype glyph (replaces multi-badge soup) ── */
 
 .dtype-glyph {
@@ -1498,16 +1887,17 @@ body::before {
   gap: 6px;
 }
 
+/* Program card — single editorial block, no meta clutter. The headline
+   answers "what is this", the italic blurb answers "why pick it"; we
+   intentionally don't show the file path or repo since neither helps a
+   non-engineer audience pick. */
 .program-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 18px;
-  align-items: start;
+  display: block;
   text-align: left;
   border: 1px solid var(--color-rule);
   background: var(--color-paper-elevated);
   border-radius: 3px;
-  padding: 16px 20px;
+  padding: 22px 26px;
   font: inherit;
   cursor: pointer;
   transition: all 150ms var(--ease-out);
@@ -1528,49 +1918,22 @@ body::before {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .program-row-main .name {
   font-weight: 500;
-  font-size: 14px;
+  font-size: 17px;
   color: var(--color-ink);
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .program-row-main .rest {
   font-family: var(--f-serif);
   font-style: italic;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--color-ink-secondary);
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.program-row-main .legal-id {
-  font-family: var(--f-mono);
-  font-size: 10.5px;
-  color: var(--color-ink-muted);
-  word-break: break-all;
-}
-
-.program-row-meta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.program-row-meta .repo-tag {
-  font-family: var(--f-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--color-ink-muted);
+  line-height: 1.55;
 }
 
 /* Section divider — fleuron */

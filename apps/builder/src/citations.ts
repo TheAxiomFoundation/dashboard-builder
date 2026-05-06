@@ -84,6 +84,52 @@ export function axiomAppUrl(fileLegalId: string): string | null {
 }
 
 /**
+ * Roll a file legal ID up to its parent "document" — the regulation
+ * collection or statute title that owns it (e.g. all `10 CCR 2506-1
+ * § 4.207.x` files share document key `us-co:regulations/10-ccr-2506-1`).
+ * Used by the picker to group ~116 sibling sections under ~4 documents
+ * so the user isn't drowning in a flat list.
+ *
+ * The user's chosen program file gets its own bucket since it isn't
+ * really a regulation — it's the composition that imports them.
+ */
+export function documentInfo(
+  fileLegalId: string,
+  ownFileLegalId: string,
+): { key: string; label: string } {
+  if (fileLegalId === ownFileLegalId) {
+    return { key: "__composition", label: "Composition (this program)" };
+  }
+  const colon = fileLegalId.indexOf(":");
+  if (colon < 0) return { key: fileLegalId, label: fileLegalId };
+  const jurisdiction = fileLegalId.slice(0, colon);
+  const body = fileLegalId.slice(colon + 1);
+  const parts = body.split("/").filter(Boolean);
+  const kind = parts[0] ?? "";
+  const slug = parts[1] ?? "";
+  const key = `${jurisdiction}:${kind}/${slug}`;
+  if (kind === "regulations") {
+    const readable = slug.replace(/-/g, " ").toUpperCase();
+    const place =
+      jurisdiction === "us-co"
+        ? " (Colorado)"
+        : jurisdiction === "us"
+          ? ""
+          : ` (${jurisdiction})`;
+    return { key, label: `${readable}${place}` };
+  }
+  if (kind === "statutes") {
+    return { key, label: `${slug} USC` };
+  }
+  if (kind === "policies") {
+    const readable = slug.replace(/-/g, " ");
+    const head = jurisdiction === "us" ? "Federal" : jurisdiction.toUpperCase();
+    return { key, label: `${head} · ${readable} policy` };
+  }
+  return { key, label: humanizeCitation(fileLegalId) };
+}
+
+/**
  * Tiny mono glyph that conveys a rule/input's flavor in one character.
  * Replaces the multi-badge soup of dtype + depth + terminal indicators with
  * one consistent visual.

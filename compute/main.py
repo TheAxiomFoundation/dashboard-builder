@@ -27,13 +27,6 @@ try:
 except ImportError:
     pass
 
-from dashboards import (
-    delete_dashboard,
-    get_dashboard,
-    list_dashboards,
-    save_dashboard,
-    seed_examples,
-)
 from engine import ComputeMode, detect_mode, execute_demo, execute_real
 from graph import build_graph, graph_to_dict, transitive_dependencies
 from registry import (
@@ -61,7 +54,6 @@ app.add_middleware(
 
 _config = RegistryConfig.from_env()
 _mode: ComputeMode = detect_mode()
-_seeded = seed_examples()
 
 
 class HealthResponse(BaseModel):
@@ -69,7 +61,6 @@ class HealthResponse(BaseModel):
     mode: str
     detail: str
     rules_root: str
-    seeded_examples: list[dict[str, Any]]
 
 
 @app.get("/healthz", response_model=HealthResponse)
@@ -79,28 +70,7 @@ def healthz() -> HealthResponse:
         mode=_mode.name,
         detail=_mode.detail,
         rules_root=str(_config.root),
-        seeded_examples=_seeded,
     )
-
-
-@app.get("/examples")
-def examples() -> dict[str, Any]:
-    """Curated dashboard slugs, used by the builder for one-click demo links."""
-    enriched = []
-    for entry in _seeded:
-        record = get_dashboard(entry["slug"])
-        if not record:
-            continue
-        spec = record.get("spec") or {}
-        meta = spec.get("meta") or {}
-        renderer_base = os.environ.get("RENDERER_URL", "http://127.0.0.1:5174")
-        enriched.append({
-            "slug": entry["slug"],
-            "title": meta.get("title") or entry["slug"],
-            "description": meta.get("description") or "",
-            "rendererUrl": f"{renderer_base}/d/{entry['slug']}",
-        })
-    return {"examples": enriched}
 
 
 @app.get("/repos")
@@ -213,43 +183,6 @@ class ComputeResponseBody(BaseModel):
     mode: str
 
 
-class DashboardSaveBody(BaseModel):
-    spec: dict[str, Any]
-    slug: str | None = None  # supply to overwrite an existing dashboard
-
-
-@app.post("/dashboards")
-def dashboards_save(body: DashboardSaveBody) -> dict[str, Any]:
-    """Persist a DashboardSpec, return slug + URL the renderer can open."""
-    if not isinstance(body.spec, dict):
-        raise HTTPException(status_code=400, detail="spec must be an object")
-    record = save_dashboard(body.spec, requested_slug=body.slug)
-    renderer_base = os.environ.get("RENDERER_URL", "http://127.0.0.1:5174")
-    return {
-        **record,
-        "rendererUrl": f"{renderer_base}/d/{record['slug']}",
-    }
-
-
-@app.get("/dashboards")
-def dashboards_list() -> dict[str, Any]:
-    return {"dashboards": list_dashboards()}
-
-
-@app.get("/dashboards/{slug}")
-def dashboards_get(slug: str) -> dict[str, Any]:
-    record = get_dashboard(slug)
-    if not record:
-        raise HTTPException(status_code=404, detail="dashboard not found")
-    return record
-
-
-@app.delete("/dashboards/{slug}")
-def dashboards_delete(slug: str) -> dict[str, Any]:
-    deleted = delete_dashboard(slug)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="dashboard not found")
-    return {"slug": slug, "deleted": True}
 
 
 @app.post("/compute", response_model=ComputeResponseBody)

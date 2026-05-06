@@ -56,7 +56,6 @@ export function ProgramStep({ draft, setDraft }: Props) {
   const [programs, setPrograms] = useState<ProgramSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [graphLoading, setGraphLoading] = useState(false);
   const [graphError, setGraphError] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
@@ -97,72 +96,67 @@ export function ProgramStep({ draft, setDraft }: Props) {
   }, [programs, query]);
 
   async function selectProgram(p: ProgramSummary) {
-    setGraphLoading(true);
     setGraphError(null);
+    // Optimistic update — switch to the selected-program view immediately
+    // with the metadata we already have. The graph fetch finishes in the
+    // background and slots into the same draft when ready. This avoids
+    // the visible "Loading program graph…" flash between click and the
+    // selected card appearing.
+    const curated = curatedFor(p);
+    const displayName = curated?.label ?? humanize(p.path);
+    setDraft({
+      ...emptyDraft(),
+      program: { repo: p.repo, path: p.path, displayName },
+      graph: null,
+      meta: { title: displayName, description: p.summary ?? "" },
+    });
+    setBrowsing(false);
     try {
       const graph = await fetchProgramGraph(p.repo, p.path);
-      const curated = curatedFor(p);
-      const displayName = curated?.label ?? humanize(p.path);
       setDraft({
         ...emptyDraft(),
         program: { repo: p.repo, path: p.path, displayName },
         graph,
         meta: { title: displayName, description: p.summary ?? "" },
       });
-      setBrowsing(false);
     } catch (e) {
       setGraphError(String(e));
-    } finally {
-      setGraphLoading(false);
     }
   }
 
-  // Selected-program view (collapsed list).
+  // Selected-program view: keep the same layout as the browsing list so
+  // the page doesn't reflow on selection. Show one .program-row marked
+  // is-current with the same headline + one-sentence blurb, plus a
+  // small "Change" link to flip back into browsing.
   if (draft.program && !browsing) {
     const p = draft.program;
+    const blurb = trimToSentence(draft.meta.description ?? "", 120);
     return (
-      <div className="step-body">
+      <div className="step-body step-program-landing">
         {graphError && <div className="warning">{graphError}</div>}
-        <div className="program-card card-edition is-active">
-          <div className="program-info">
-            <div className="name">{p.displayName}</div>
-            {draft.meta.description && <div className="summary">{draft.meta.description}</div>}
-            <div className="repo">
-              {p.repo} · {p.path}
+        <div className="program-list">
+          <div className="program-row is-current" aria-current="true">
+            <div className="program-row-main">
+              <span className="name">{p.displayName}</span>
+              {blurb && <span className="rest">{blurb}</span>}
             </div>
           </div>
-          <button className="btn secondary" onClick={() => setBrowsing(true)}>
-            Change
-          </button>
         </div>
-        <div
-          className="muted"
-          style={{ fontFamily: "var(--f-serif)", fontStyle: "italic" }}
+        <button
+          className="btn ghost program-change-btn"
+          onClick={() => setBrowsing(true)}
         >
-          {(draft.graph?.rules.length ?? 0)} rules indexed ·{" "}
-          {(draft.graph?.inputs.length ?? 0)} inputs available ·{" "}
-          {(draft.graph?.relations.length ?? 0)} relations
-        </div>
+          Change program
+        </button>
       </div>
     );
   }
 
   // Browsing view — inline search + list.
   return (
-    <div className="step-body">
+    <div className="step-body step-program-landing">
       {loadError && <div className="warning">{loadError}</div>}
       {graphError && <div className="warning">{graphError}</div>}
-
-      <p
-        className="muted"
-        style={{ fontFamily: "var(--f-serif)", fontStyle: "italic", marginBottom: 4 }}
-      >
-        We're piloting the builder against one program at a time. More on the way.
-      </p>
-
-      {graphLoading && (
-        <div className="empty-hint">Loading program graph…</div>
-      )}
 
       <div className="program-list">
         {filtered.length === 0 && !loading && (
@@ -182,11 +176,14 @@ export function ProgramStep({ draft, setDraft }: Props) {
         ))}
       </div>
 
+      <p className="program-pilot-note">
+        We're piloting the builder against one program at a time. More on the way.
+      </p>
+
       {draft.program && (
         <button
-          className="btn secondary"
+          className="btn secondary program-back-btn"
           onClick={() => setBrowsing(false)}
-          style={{ alignSelf: "flex-start" }}
         >
           ← Back to current selection
         </button>
@@ -208,7 +205,10 @@ function ProgramRow({
   const summary = program.summary?.trim();
   const filenameStem = (program.path.replace(/\.yaml$/, "").split("/").pop() ?? program.path).replace(/[-_]/g, " ");
   const headline = curated?.label ?? (summary ? splitSentence(summary).head : filenameStem);
-  const sub = curated ? summary : (summary ? splitSentence(summary).rest : "");
+  // Trim the supporting blurb to one clean sentence on a word boundary —
+  // anything longer reads as YAML lore, gets truncated mid-word, and
+  // distracts from the headline + click affordance.
+  const blurb = trimToSentence(curated ? summary ?? "" : splitSentence(summary ?? "").rest, 120);
 
   return (
     <button
@@ -218,17 +218,25 @@ function ProgramRow({
     >
       <div className="program-row-main">
         <span className="name">{headline}</span>
-        {sub && <span className="rest">{sub}</span>}
-        <span className="legal-id">{program.path}</span>
-      </div>
-      <div className="program-row-meta">
-        <span className={`kind-pill kind-${program.kind}`}>
-          {KIND_LABEL[program.kind] ?? program.kind}
-        </span>
-        <span className="repo-tag">{program.repo}</span>
+        {blurb && <span className="rest">{blurb}</span>}
       </div>
     </button>
   );
+}
+
+/** Take the first sentence of `s`, capped at `maxChars` characters with a
+ *  word-boundary ellipsis. Avoids the mid-word truncation that the raw
+ *  CSS line-clamp produced. */
+function trimToSentence(s: string, maxChars: number): string {
+  const cleaned = s.trim();
+  if (!cleaned) return "";
+  const period = cleaned.search(/[.!?](\s|$)/);
+  let head = period > 0 ? cleaned.slice(0, period + 1) : cleaned;
+  if (head.length > maxChars) {
+    const cutAt = head.lastIndexOf(" ", maxChars - 1);
+    head = (cutAt > 40 ? head.slice(0, cutAt) : head.slice(0, maxChars)).trimEnd() + "…";
+  }
+  return head;
 }
 
 function scoreProgram(p: ProgramSummary, q: string): number {
