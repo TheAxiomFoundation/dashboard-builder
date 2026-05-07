@@ -8,7 +8,10 @@
   --f-display: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --f-body: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --f-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
-  --f-serif: "Source Serif 4", Georgia, serif;
+  /* Serif aliased onto Geist sans — see apps/builder/src/styles.css for
+     the rationale. Mono reserved for code-like spans (legal IDs, formula
+     text in the popover). */
+  --f-serif: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   --color-paper: #faf9f6;
   --color-paper-elevated: #ffffff;

@@ -737,12 +737,12 @@ const OutputNode = ({ data }: NodeProps) => {
     >
       <HandleTarget />
       <InfoBadge open={pop.open} onEnter={pop.enter} onLeave={pop.leave} />
-      <div className="irg-eyebrow">Output</div>
+      <div className="irg-eyebrow">Result</div>
       <div className="irg-label">{softBreak(humanizeLabel(d.label))}</div>
       {d.showValues && d.value && <div className="irg-value">{d.value}</div>}
       {d.canToggleOutput && (
         <div className="irg-action irg-action-clickable" data-action="output">
-          − output
+          − remove from results
         </div>
       )}
       {d.canExpand && (
@@ -782,13 +782,13 @@ const InputNode = ({ data }: NodeProps) => {
       <HandleSource />
       <InfoBadge open={pop.open} onEnter={pop.enter} onLeave={pop.leave} />
       <div className="irg-eyebrow">
-        Input · <span className={`irg-status irg-status-${d.source}`}>{status}</span>
+        Question · <span className={`irg-status irg-status-${d.source}`}>{d.source === "user" ? "asked" : "not asked"}</span>
       </div>
       <div className="irg-label">{softBreak(humanizeLabel(d.label))}</div>
       {d.showValues && d.value && <div className="irg-value">{d.value}</div>}
       {showAction && (
         <div className="irg-action irg-action-clickable">
-          {d.source === "user" ? "− remove" : "+ expose"}
+          {d.source === "user" ? "− remove" : "+ ask the user"}
         </div>
       )}
       <NodeInfo
@@ -837,7 +837,7 @@ const RuleRefNode = ({ data }: NodeProps) => {
     >
       <HandleBoth />
       <InfoBadge open={pop.open} onEnter={pop.enter} onLeave={pop.leave} />
-      <div className="irg-eyebrow">{d.isOutput ? "Rule · output" : "Rule"}</div>
+      <div className="irg-eyebrow">{d.isOutput ? "Step · result" : "Step"}</div>
       <div className="irg-label">{softBreak(humanizeLabel(d.label))}</div>
       {d.showValues && d.value && <div className="irg-value">{d.value}</div>}
       {d.canToggleOutput && (
@@ -845,7 +845,7 @@ const RuleRefNode = ({ data }: NodeProps) => {
           className="irg-action irg-action-clickable"
           data-action="output"
         >
-          {d.isOutput ? "− output" : "+ output"}
+          {d.isOutput ? "− remove from results" : "+ make a result"}
         </div>
       )}
       {d.canExpand && (
@@ -1739,10 +1739,13 @@ function buildMeta(t: TraceNode, kind: "Output" | "Input" | "Rule"): NodeMeta {
   const citation = t.source ?? (fileLegalId ? humanizeCitation(fileLegalId) : undefined);
   const appUrl = fileLegalId ? axiomAppUrl(fileLegalId) : null;
   const dtypeText = t.dtype && t.dtype !== "input" ? ` · ${t.dtype}` : "";
-  // Formula previews on rules/outputs were noisy and the "code path" was
-  // already implicit in the title — citation + Axiom link is enough.
+  // Translate engine vocab into the user's vocab — Input → Question,
+  // Rule → Step. Output stays Output since "result" is a layered
+  // concept the user already sees as the eyebrow on the node body.
+  const friendly =
+    kind === "Input" ? "Question" : kind === "Rule" ? "Step" : "Result";
   return {
-    kindLine: `${kind}${dtypeText}`,
+    kindLine: `${friendly}${dtypeText}`,
     citation,
     legalId: t.legalId,
     appUrl,

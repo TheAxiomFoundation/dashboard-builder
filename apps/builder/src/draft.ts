@@ -87,6 +87,74 @@ export function humanize(name: string): string {
   return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/**
+ * Walk the rule graph from each selected output through `ruleDeps`,
+ * collecting every input/relation that any remaining output transitively
+ * reaches. Used to prune exposed inputs/relations the user no longer
+ * needs after they remove an output — otherwise the InputStep keeps
+ * "ghost" picks that don't connect to anything.
+ */
+function reachableFromOutputs(draft: Draft): {
+  inputs: Set<string>;
+  relations: Set<string>;
+} {
+  const inputs = new Set<string>();
+  const relations = new Set<string>();
+  if (!draft.graph) return { inputs, relations };
+  const ruleById = new Map(draft.graph.rules.map((r) => [r.legalId, r]));
+  const seen = new Set<string>();
+  const queue = draft.outputs.map((o) => o.legalId);
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const rule = ruleById.get(id);
+    if (!rule) continue;
+    for (const inp of rule.inputDeps) inputs.add(inp);
+    for (const rel of rule.relationDeps) relations.add(rel);
+    for (const dep of rule.ruleDeps) queue.push(dep);
+  }
+  return { inputs, relations };
+}
+
+/**
+ * Drop exposed inputs / relations / member-inputs that no remaining
+ * output transitively depends on. Call this whenever an output is
+ * removed from the draft. Idempotent — already-clean drafts return
+ * the same state.
+ */
+export function pruneUnreachable(draft: Draft): Draft {
+  if (!draft.graph) return draft;
+  const { inputs: reachableInputs, relations: reachableRelations } =
+    reachableFromOutputs(draft);
+
+  const nextInputs = draft.inputs.filter((i) => reachableInputs.has(i.legalId));
+  const nextRelations = draft.relations
+    .filter((r) => reachableRelations.has(r.legalId))
+    .map((r) => ({
+      ...r,
+      memberInputs: r.memberInputs.filter((m) => reachableInputs.has(m.legalId)),
+    }));
+
+  // Avoid creating new arrays when nothing changed — keeps React's
+  // referential equality happy and avoids unnecessary re-renders.
+  const sameInputs =
+    nextInputs.length === draft.inputs.length &&
+    nextInputs.every((v, i) => v === draft.inputs[i]);
+  const sameRelations =
+    nextRelations.length === draft.relations.length &&
+    nextRelations.every((v, i) => {
+      const orig = draft.relations[i];
+      return (
+        v === orig ||
+        (v.legalId === orig?.legalId &&
+          v.memberInputs.length === orig.memberInputs.length)
+      );
+    });
+  if (sameInputs && sameRelations) return draft;
+  return { ...draft, inputs: nextInputs, relations: nextRelations };
+}
+
 export function presentationFor(rule: RuleNode): OutputPresentation {
   const dtype = (rule.dtype ?? "").toLowerCase();
   if (dtype === "judgment") return { kind: "eligibility" };

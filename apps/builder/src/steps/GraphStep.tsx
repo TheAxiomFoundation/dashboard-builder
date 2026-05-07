@@ -1,7 +1,9 @@
+import { useMemo, useState } from "react";
 import { Dashboard, type ParameterRule } from "@dashboard-builder/render";
 import { computeUrl } from "../api";
 import type { Draft } from "../draft";
 import { exportSpec } from "../draft";
+import { curatedForDraft } from "./ProgramStep";
 
 interface Props {
   draft: Draft;
@@ -17,13 +19,15 @@ interface Props {
   parameterRules?: ParameterRule[];
 }
 
+type ReviewView = "overview" | "graph";
+
 /**
- * Step IV — interactive computation graph.
+ * Step IV — Review.
  *
- * Same affordances as the picker steps, just shown through the structural
- * view: rule nodes get a "+ output" / "− output" toggle, default inputs
- * get "+ expose" / "− remove". Useful for users who'd rather discover by
- * tracing the structure than scrolling the chip pickers.
+ * Default: a structured plain-language overview of everything the user
+ * picked — main results, intermediate steps, questions to ask, source
+ * documents drawn from. Optional disclosure flips to the interactive
+ * computation graph for users who want to see the structure.
  */
 export function GraphStep({
   draft,
@@ -35,31 +39,231 @@ export function GraphStep({
 }: Props) {
   const spec = exportSpec(draft);
   const ready = !!spec && spec.outputs.length > 0;
+  const [view, setView] = useState<ReviewView>("overview");
+
+  // Decompose draft.outputs into per-main buckets. Each picked main
+  // result gets its own group containing the intermediate rules that
+  // feed it (BFS through rule_deps). An intermediate that feeds both
+  // mains appears under both — same picked rule, just shown in each
+  // bucket so the user reads "for Eligibility we use X" and "for
+  // Benefit amount we also use X".
+  const overview = useMemo(() => {
+    const curated = curatedForDraft(draft.program);
+    const mainDefs = curated?.mainOutputs ?? [];
+    const mainLegalIds = new Set(mainDefs.map((m) => m.legalId));
+    const ruleById = draft.graph
+      ? new Map(draft.graph.rules.map((r) => [r.legalId, r] as const))
+      : new Map();
+
+    // Reachable rule legalIds per picked main.
+    function reachableFrom(mainLegalId: string): Set<string> {
+      const seen = new Set<string>();
+      const reachable = new Set<string>();
+      const queue: string[] = [mainLegalId];
+      while (queue.length > 0) {
+        const id = queue.shift()!;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const r = ruleById.get(id);
+        if (!r) continue;
+        for (const dep of r.ruleDeps) {
+          if (!reachable.has(dep)) {
+            reachable.add(dep);
+            queue.push(dep);
+          }
+        }
+      }
+      return reachable;
+    }
+
+    interface Bucket {
+      main: typeof draft.outputs[number] | null;
+      label: string;
+      intermediates: typeof draft.outputs;
+    }
+    const buckets: Bucket[] = [];
+    const allIntermediates = draft.outputs.filter(
+      (o) => !mainLegalIds.has(o.legalId),
+    );
+    for (const def of mainDefs) {
+      const main = draft.outputs.find((o) => o.legalId === def.legalId);
+      if (!main) continue;
+      const reachable = reachableFrom(def.legalId);
+      const intermediates = allIntermediates.filter((o) =>
+        reachable.has(o.legalId),
+      );
+      buckets.push({ main, label: def.label, intermediates });
+    }
+
+    // Intermediates that don't feed any picked main (or no curated
+    // mains exist) — show under "Other".
+    const orphanedIntermediates = allIntermediates.filter(
+      (o) =>
+        !buckets.some((b) =>
+          b.intermediates.some((i) => i.legalId === o.legalId),
+        ),
+    );
+
+    return { buckets, orphanedIntermediates };
+  }, [draft]);
 
   if (!ready || !spec) {
     return (
       <div className="empty-hint">
-        Pick at least one output (step II) before viewing the graph.
+        Pick at least one result (step II) before reviewing.
       </div>
     );
   }
 
   return (
-    <div className="step-body publish-step">
-      <div className="publish-preview publish-preview-graph">
-        <Dashboard
-          spec={spec}
-          variant="page"
-          computeUrl={computeUrl}
-          autoCompute
-          previewMode="structure"
-          onExposeInput={onExposeInput}
-          exposedInputIds={exposedInputIds}
-          onAddOutput={onAddOutput}
-          selectedOutputIds={selectedOutputIds}
-          parameterRules={parameterRules}
-        />
+    <div
+      className={`step-body review-step ${view === "graph" ? "review-step-wide" : ""}`}
+    >
+      <div className="review-view-toggle" role="tablist" aria-label="Review view">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "overview"}
+          className={`review-view-tab ${view === "overview" ? "is-active" : ""}`}
+          onClick={() => setView("overview")}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "graph"}
+          className={`review-view-tab ${view === "graph" ? "is-active" : ""}`}
+          onClick={() => setView("graph")}
+        >
+          Computation graph
+        </button>
       </div>
+
+      {view === "overview" ? (
+        <div className="review-overview review-overview-split">
+          <ReviewSection
+            label="Picked results"
+            count={draft.outputs.length}
+            empty="No results picked yet."
+          >
+            {overview.buckets.map((b) => (
+              <div key={b.main?.legalId ?? b.label} className="review-subsection">
+                <div className="review-subsection-label">For {b.label}</div>
+                <ul className="review-list">
+                  {b.main && (
+                    <li className="review-item">
+                      <span className="review-item-label">
+                        {b.label}
+                        <span className="review-item-meta">main</span>
+                      </span>
+                    </li>
+                  )}
+                  {b.intermediates.map((o) => (
+                    <li key={o.legalId} className="review-item review-item-indent">
+                      <span className="review-item-label">{o.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {overview.orphanedIntermediates.length > 0 && (
+              <div className="review-subsection">
+                <div className="review-subsection-label">
+                  {overview.buckets.length === 0 ? "Picked" : "Other"}
+                </div>
+                <ul className="review-list">
+                  {overview.orphanedIntermediates.map((o) => (
+                    <li key={o.legalId} className="review-item">
+                      <span className="review-item-label">{o.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </ReviewSection>
+
+          <ReviewSection
+            label="Questions you'll ask"
+            count={
+              draft.inputs.length +
+              draft.relations.reduce((n, r) => n + r.memberInputs.length, 0)
+            }
+            empty="The user won't fill anything in — every value falls back to a default."
+          >
+            {draft.inputs.length > 0 && (
+              <ul className="review-list">
+                {draft.inputs.map((inp) => (
+                  <li key={inp.legalId} className="review-item">
+                    <span className="review-item-label">{inp.label}</span>
+                    <span className="review-item-meta">{inp.dtype}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {draft.relations.map((rel) =>
+              rel.memberInputs.length > 0 ? (
+                <div
+                  key={rel.legalId}
+                  className="review-subsection review-subsection-relation"
+                >
+                  <div className="review-subsection-label">
+                    {rel.label} — per-member questions
+                  </div>
+                  <ul className="review-list">
+                    {rel.memberInputs.map((m) => (
+                      <li key={m.legalId} className="review-item">
+                        <span className="review-item-label">{m.label}</span>
+                        <span className="review-item-meta">{m.dtype}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null,
+            )}
+          </ReviewSection>
+        </div>
+      ) : (
+        <div className="publish-preview publish-preview-graph">
+          <Dashboard
+            spec={spec}
+            variant="page"
+            computeUrl={computeUrl}
+            autoCompute
+            previewMode="structure"
+            onExposeInput={onExposeInput}
+            exposedInputIds={exposedInputIds}
+            onAddOutput={onAddOutput}
+            selectedOutputIds={selectedOutputIds}
+            parameterRules={parameterRules}
+          />
+        </div>
+      )}
     </div>
   );
 }
+
+interface ReviewSectionProps {
+  label: string;
+  count: number;
+  empty: string;
+  children: React.ReactNode;
+}
+function ReviewSection({ label, count, empty, children }: ReviewSectionProps) {
+  return (
+    <section className="review-section">
+      <header className="review-section-head">
+        <span className="review-section-label">{label}</span>
+        <span className="review-section-count">
+          {count}
+        </span>
+      </header>
+      {count === 0 && empty ? (
+        <p className="review-empty">{empty}</p>
+      ) : (
+        children
+      )}
+    </section>
+  );
+}
+

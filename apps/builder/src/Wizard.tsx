@@ -33,11 +33,11 @@ export const STEPS: StepDef[] = [
     ordinal: "I",
     index: 1,
     label: "Program",
-    title: <>Choose a <em>rule program</em></>,
+    title: <>Pick a <em>rule program</em></>,
     lede: (
       <>
-        Search every Axiom rule pack — federal, state, jurisdictional. Pick the
-        program your calculator is going to compute against.
+        Pick the rules your calculator will use. We've curated a few to
+        start; more on the way.
       </>
     ),
     canContinue: (d) => !!d.program && !!d.graph,
@@ -50,8 +50,8 @@ export const STEPS: StepDef[] = [
     title: <>What should it <em>show</em>?</>,
     lede: (
       <>
-        Pick the values the calculator will display. Presentation — currency,
-        eligibility, plain number — is inferred from each rule's declared type.
+        Choose what your calculator will tell the user. Most calculators
+        have one or two main results — eligibility, benefit amount, etc.
       </>
     ),
     canContinue: (d) => d.outputs.length > 0,
@@ -64,9 +64,8 @@ export const STEPS: StepDef[] = [
     title: <>What should the user <em>fill in</em>?</>,
     lede: (
       <>
-        These inputs feed the outputs you picked. Toggle the ones the
-        end-user should answer; the rest fall back to the program's test
-        fixture so compute always succeeds.
+        Pick the questions the user will answer. Anything you skip falls
+        back to a sensible default so the calculator always returns a result.
       </>
     ),
     canContinue: () => true,
