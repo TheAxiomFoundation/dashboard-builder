@@ -96,9 +96,9 @@ export function axiomAppUrl(fileLegalId: string): string | null {
 export function documentInfo(
   fileLegalId: string,
   ownFileLegalId: string,
-): { key: string; label: string } {
+): { key: string; label: string; sublabel?: string } {
   if (fileLegalId === ownFileLegalId) {
-    return { key: "__composition", label: "Composition (this program)" };
+    return { key: "__composition", label: "Main calculator" };
   }
   const colon = fileLegalId.indexOf(":");
   if (colon < 0) return { key: fileLegalId, label: fileLegalId };
@@ -108,23 +108,26 @@ export function documentInfo(
   const kind = parts[0] ?? "";
   const slug = parts[1] ?? "";
   const key = `${jurisdiction}:${kind}/${slug}`;
+  // Lead with plain-English describing what kind of source the user is
+  // looking at; the citation slug rides as the small subtitle elsewhere
+  // (rule-doc-meta) so the user can drill in if they want.
+  const where =
+    jurisdiction === "us"
+      ? "Federal"
+      : jurisdiction === "us-co"
+        ? "Colorado"
+        : jurisdiction.toUpperCase();
   if (kind === "regulations") {
-    const readable = slug.replace(/-/g, " ").toUpperCase();
-    const place =
-      jurisdiction === "us-co"
-        ? " (Colorado)"
-        : jurisdiction === "us"
-          ? ""
-          : ` (${jurisdiction})`;
-    return { key, label: `${readable}${place}` };
+    const sublabel = slug ? slug.replace(/-/g, " ").toUpperCase() : undefined;
+    return { key, label: `${where} regulations`, sublabel };
   }
   if (kind === "statutes") {
-    return { key, label: `${slug} USC` };
+    const sublabel = slug ? `${slug} USC` : undefined;
+    return { key, label: `${where} statute`, sublabel };
   }
   if (kind === "policies") {
-    const readable = slug.replace(/-/g, " ");
-    const head = jurisdiction === "us" ? "Federal" : jurisdiction.toUpperCase();
-    return { key, label: `${head} · ${readable} policy` };
+    const sublabel = slug ? slug.replace(/-/g, " ") : undefined;
+    return { key, label: `${where} policy`, sublabel };
   }
   return { key, label: humanizeCitation(fileLegalId) };
 }

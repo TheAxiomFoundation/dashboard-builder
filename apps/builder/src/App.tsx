@@ -13,6 +13,7 @@ import {
   exposeInput,
   exposeRelation,
   humanize,
+  pruneUnreachable,
   selectOutput,
   widgetFor,
 } from "./draft";
@@ -95,11 +96,33 @@ export function App() {
     if (reachable) setStepId(id);
   }
 
+  // Step II ("outputs") is split into two sub-stages: cards-first
+  // ("main") for the curated 1-3 top-level results, then a separate
+  // ("intermediates") screen for the document picker if the user
+  // wants to surface anything else. Continue/Back walk through both
+  // before moving on to Step III.
+  const [outputStage, setOutputStage] = useState<"main" | "intermediates">(
+    "main",
+  );
+  // Reset the sub-stage whenever we leave Step II so re-entering
+  // always starts with the cards.
+  useEffect(() => {
+    if (stepId !== "outputs") setOutputStage("main");
+  }, [stepId]);
+
   function next() {
+    if (stepId === "outputs" && outputStage === "main") {
+      setOutputStage("intermediates");
+      return;
+    }
     const idx = step.index;
     if (idx < STEPS.length) setStepId(STEPS[idx]!.id);
   }
   function back() {
+    if (stepId === "outputs" && outputStage === "intermediates") {
+      setOutputStage("main");
+      return;
+    }
     const idx = step.index;
     if (idx > 1) setStepId(STEPS[idx - 2]!.id);
   }
@@ -203,7 +226,14 @@ export function App() {
   function handleAddOutput(legalId: string) {
     if (!draft.graph) return;
     if (selectedOutputIds.has(legalId)) {
-      setDraft({ ...draft, outputs: draft.outputs.filter((o) => o.legalId !== legalId) });
+      // Drop the output and any exposed input/relation that no longer
+      // has another output reaching it (mirrors OutputStep's toggle).
+      setDraft(
+        pruneUnreachable({
+          ...draft,
+          outputs: draft.outputs.filter((o) => o.legalId !== legalId),
+        }),
+      );
       return;
     }
     const rule = draft.graph.rules.find((r) => r.legalId === legalId);
@@ -250,7 +280,13 @@ export function App() {
 
           <div className="step-content">
             {stepId === "program" && <ProgramStep draft={draft} setDraft={setDraft} />}
-            {stepId === "outputs" && <OutputStep draft={draft} setDraft={setDraft} />}
+            {stepId === "outputs" && (
+              <OutputStep
+                draft={draft}
+                setDraft={setDraft}
+                stage={outputStage}
+              />
+            )}
             {stepId === "inputs" && <InputStep draft={draft} setDraft={setDraft} />}
             {stepId === "review" && (
               <GraphStep

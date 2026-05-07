@@ -25,20 +25,55 @@ const KIND_LABEL: Record<string, string> = {
  * shown in the picker so users see "Colorado SNAP" instead of the
  * auto-generated stem.
  */
-const CURATED_PROGRAMS: Array<{
+export interface CuratedMainOutput {
+  legalId: string;
+  /** Friendly card title — overrides the rule's auto-humanized name. */
+  label: string;
+  /** One-sentence card subtitle, civic-tech-leader vocabulary. */
+  blurb?: string;
+}
+
+export interface CuratedProgram {
   repo: string;
   path: string;
   label: string;
-}> = [
+  /** Curated "main results" surfaced as cards on Step II. Order matters. */
+  mainOutputs?: CuratedMainOutput[];
+}
+
+const CURATED_PROGRAMS: CuratedProgram[] = [
   {
     repo: "rules-us-co",
     path: "policies/cdhs/snap/fy-2026-benefit-calculation.yaml",
     label: "Colorado SNAP",
+    mainOutputs: [
+      {
+        legalId:
+          "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_eligible",
+        label: "Eligibility",
+        blurb: "Whether the household qualifies for SNAP at all.",
+      },
+      {
+        legalId:
+          "us-co:regulations/10-ccr-2506-1/4.207.2#snap_allotment",
+        label: "Benefit amount",
+        blurb: "How much the household receives each month if eligible.",
+      },
+    ],
   },
 ];
 
-function curatedFor(p: ProgramSummary) {
+export function curatedFor(p: ProgramSummary): CuratedProgram | undefined {
   return CURATED_PROGRAMS.find((c) => c.repo === p.repo && c.path === p.path);
+}
+
+export function curatedForDraft(
+  program: { repo: string; path: string } | null,
+): CuratedProgram | undefined {
+  if (!program) return undefined;
+  return CURATED_PROGRAMS.find(
+    (c) => c.repo === program.repo && c.path === program.path,
+  );
 }
 
 /**

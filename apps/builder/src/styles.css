@@ -1,17 +1,21 @@
 /* ═══════════════════════════════════════════
-   Axiom Dashboard Builder — editorial styling.
-   Mirrors @axiom-foundation/ui's "statute paper
-   & legal ink" design language: cream paper,
-   ink-brown accents, thin geometric uppercase
-   headings, mono eyebrows, serif italic for
-   in-flow editorial emphasis.
+   Axiom Dashboard Builder — civic-tech styling.
+   Cream paper + ink-brown accent for identity,
+   single sans typeface (Geist) for everything,
+   mono reserved for actual code (legal IDs and
+   formula text). Hierarchy comes from weight +
+   size + color, not font-family changes.
    ═══════════════════════════════════════════ */
 
 :root {
   --f-display: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --f-body: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --f-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
-  --f-serif: "Source Serif 4", Georgia, serif;
+  /* --f-serif used to be Source Serif 4 for italic editorial accents.
+     We aliased it onto the body sans so old call-sites stop fighting
+     the simpler type system; targeted classes drop the italic styling
+     elsewhere in this file. */
+  --f-serif: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   --color-paper: #faf9f6;
   --color-paper-elevated: #ffffff;
@@ -25,8 +29,11 @@
   --color-accent-light: rgba(146, 64, 14, 0.06);
   --color-accent-line: rgba(146, 64, 14, 0.15);
   --color-success: #166534;
+  --color-success-light: rgba(22, 101, 52, 0.08);
   --color-warning: #b45309;
+  --color-warning-light: rgba(180, 83, 9, 0.08);
   --color-error: #991b1b;
+  --color-error-light: rgba(153, 27, 27, 0.08);
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -48,17 +55,7 @@ body, html, #root {
   background: var(--color-paper);
 }
 
-/* Subtle paper grain — matches axiom-foundation.org */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.4;
-  mix-blend-mode: multiply;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.11  0 0 0 0 0.10  0 0 0 0 0.09  0 0 0 0.04 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-}
+/* Paper grain SVG was removed — it added noise without information. */
 
 /* ═══════════════════════════════════════════
    App shell
@@ -1960,4 +1957,472 @@ body::before {
   font-style: italic;
   font-size: 16px;
   color: var(--color-accent);
+}
+
+/* ═══════════════════════════════════════════
+   UI / UX cleanup overrides
+   --------------------------------------------
+   Civic-tech-leader-friendly pruning, applied as
+   a single block at the end of the file so the
+   intent is grep-able. The earlier rules stay
+   for diff continuity; these win by source order.
+   ═══════════════════════════════════════════ */
+
+/* No mono uppercase on category labels — just sentence case sans. */
+.step-eyebrow,
+.selected-panel-eyebrow,
+.rule-doc-label,
+.rule-doc-meta,
+.rule-section-label,
+.rule-section-meta,
+.summary-stats,
+.summary-stats span,
+.export-format-label,
+.step-progress,
+.preview-divider span,
+.publish-divider span,
+.preview-view-tab,
+.brand-title,
+.terminal-tag,
+.blocked-tag,
+.per-member-tag,
+.group-rule-count,
+.group-selected-count,
+.rule-group-label,
+.rule-group-meta {
+  font-family: var(--f-body);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* The "§" eyebrow marker on each step header read as ornament; drop. */
+.step-eyebrow .marker { display: none; }
+.step-eyebrow::before { display: none; }
+.step-eyebrow {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-ink-muted);
+  margin-bottom: 8px;
+}
+
+/* Step heading — sentence case sans, weight does the work. */
+.step-heading {
+  font-family: var(--f-display);
+  font-weight: 600;
+  font-size: clamp(1.6rem, 2.4vw, 2.1rem);
+  line-height: 1.15;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  margin: 6px 0 14px;
+}
+.step-heading em {
+  font-family: inherit;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: inherit;
+  text-transform: none;
+  color: var(--color-accent);
+}
+
+.step-lede {
+  font-family: var(--f-body);
+  font-style: normal;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--color-ink-secondary);
+  margin: 0 auto 28px;
+  max-width: 60ch;
+}
+
+/* Section dividers and the fleuron added decoration without
+   information; drop the fleuron, keep dividers but quieter. */
+.fleuron { display: none; }
+
+.publish-divider span,
+.preview-divider span {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-ink-muted);
+}
+
+/* Brand wordmark — readable, not a stamp. */
+.brand-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+/* Eyebrow / meta on selected-pills + headers stay small + muted but
+   without uppercase tracking. */
+.selected-panel-eyebrow {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-ink-muted);
+}
+.selected-panel-eyebrow strong {
+  color: var(--color-ink);
+}
+.selected-pill {
+  font-size: 13px;
+}
+.selected-pill .meta {
+  font-style: normal;
+  color: var(--color-ink-muted);
+}
+
+/* Document/section group headers — friendly title + small meta. */
+.rule-doc-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.rule-section-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-ink-secondary);
+}
+.rule-doc-meta,
+.rule-section-meta,
+.summary-stats,
+.summary-stats span {
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+
+/* Inline blurb under program names was italic serif; make it sans
+   regular so it reads as continuation, not a quote. */
+.program-row-main .rest {
+  font-family: var(--f-body);
+  font-style: normal;
+  color: var(--color-ink-secondary);
+}
+
+.program-pilot-note {
+  font-style: normal;
+  color: var(--color-ink-muted);
+}
+
+/* Tag-shaped statuses — readable, not engraved. */
+.terminal-tag,
+.blocked-tag,
+.per-member-tag,
+.group-rule-count,
+.group-selected-count {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Cap the picker inner reading width even inside a 1480px workspace,
+   so chips don't stretch into endless horizontal rows on big monitors.
+   Does NOT apply to the Review (graph) and Preview (demo) steps —
+   those want full canvas width. */
+.step-with-sidebar .step-main {
+  max-width: 720px;
+}
+
+/* Headline cards — Step II's primary affordance when the program has
+   only a few terminal outputs. Big tap targets, accent-tinted when
+   selected, with an "Add intermediate steps" disclosure beneath that
+   reveals the full document picker for power users. */
+
+.output-stage-prompt {
+  font-size: 14px;
+  color: var(--color-ink-secondary);
+  margin: 0 0 12px;
+}
+
+/* Stage 1 of Step II — cards-only, centered, no sidebar. The Continue
+   button in the wizard nav advances to stage 2 (intermediates). */
+.output-stage-main {
+  max-width: 720px;
+  margin: 0 auto;
+  align-items: stretch;
+}
+.output-stage-main .output-stage-prompt {
+  text-align: center;
+  font-size: 15px;
+  margin-bottom: 24px;
+}
+
+.output-headline-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.output-headline-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  background: var(--color-paper-elevated);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 120ms,
+    background 120ms,
+    transform 120ms;
+}
+.output-headline-card:hover {
+  border-color: var(--color-ink-muted);
+  transform: translateY(-1px);
+}
+.output-headline-card.is-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+.output-headline-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-ink);
+  line-height: 1.3;
+}
+.output-headline-card-source {
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+.output-headline-card-state {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-ink-muted);
+}
+.output-headline-card.is-selected .output-headline-card-state {
+  color: var(--color-accent);
+}
+
+.output-advanced-toggle {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  padding: 6px 0;
+  margin-top: 4px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.output-advanced-toggle:hover {
+  color: var(--color-accent-hover);
+}
+
+/* Per-main partition for intermediates — one bucket per picked top-
+   level result, so the user thinks "what feeds Eligibility?" vs "what
+   feeds Benefit amount?" instead of one undifferentiated pile. */
+.output-main-bucket {
+  margin-bottom: 24px;
+}
+.output-main-bucket-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 2px 10px;
+  border-bottom: 1px solid var(--color-rule);
+  margin-bottom: 12px;
+}
+.output-main-bucket-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+.output-main-bucket-meta {
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+
+/* Review step (Step IV) — structured overview by default, graph
+   behind a toggle. The overview is a stack of plain-language sections
+   (Picked results / Questions / Sources) that any non-engineer can
+   read without ever opening the graph. */
+
+.review-step {
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+  transition: max-width 200ms var(--ease-out);
+}
+/* When the user flips to the graph view, drop the reading-width cap
+   so the canvas gets the full wizard pane. The summary's reading
+   width is text-friendly; the graph wants every pixel it can get. */
+.review-step.review-step-wide {
+  max-width: none;
+}
+
+.review-view-toggle {
+  display: inline-flex;
+  align-self: center;
+  margin: 0 auto 28px;
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  background: var(--color-paper-elevated);
+  overflow: hidden;
+}
+.review-view-tab {
+  padding: 8px 18px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.review-view-tab + .review-view-tab {
+  border-left: 1px solid var(--color-rule);
+}
+.review-view-tab:hover {
+  background: var(--color-rule-subtle);
+  color: var(--color-ink);
+}
+.review-view-tab.is-active {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.review-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Side-by-side: results on the left, questions on the right. Wraps to
+   a single column under 700px so it stays readable on narrow viewports. */
+.review-overview-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 700px) {
+  .review-overview-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Indent intermediate results inside their main bucket so the user
+   reads "Eligibility · Snap Eligible" and the rules feeding it as a
+   nested list. */
+.review-item-indent {
+  padding-left: 14px;
+  font-size: 13px;
+  color: var(--color-ink-secondary);
+}
+
+.review-section {
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  background: var(--color-paper-elevated);
+  padding: 14px 16px 12px;
+}
+.review-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.review-section-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.review-section-count {
+  font-size: 12px;
+  color: var(--color-ink-muted);
+  background: var(--color-rule-subtle);
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.review-empty {
+  margin: 4px 0 2px;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+}
+
+.review-subsection {
+  margin-bottom: 8px;
+}
+.review-subsection:last-child { margin-bottom: 0; }
+.review-subsection-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-ink-muted);
+  margin-bottom: 3px;
+}
+.review-subsection-relation {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-rule);
+}
+
+.review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.review-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--color-ink);
+  line-height: 1.4;
+}
+.review-item-label {
+  flex: 1;
+  min-width: 0;
+}
+.review-item-meta {
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+
+.review-graph-hint {
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+  margin: 8px 0 0;
+}
+.review-graph-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--color-accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.review-graph-link:hover {
+  color: var(--color-accent-hover);
+}
+
+/* Document label + sublabel stack — friendly name on top, citation
+   slug below in muted small caps. */
+.rule-doc-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.rule-doc-sublabel {
+  font-family: var(--f-body);
+  font-size: 11.5px;
+  color: var(--color-ink-muted);
+  letter-spacing: 0;
+  text-transform: none;
 }

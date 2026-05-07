@@ -151,17 +151,25 @@ export function InputStep({ draft, setDraft }: Props) {
   interface InputDocument {
     key: string;
     label: string;
+    sublabel?: string;
     sections: InputSection[];
     totalItems: number;
   }
   const deeperDocuments = useMemo<InputDocument[]>(() => {
     const byDoc = new Map<
       string,
-      { label: string; sections: Map<string, DepEntry<InputGraphNode>[]> }
+      {
+        label: string;
+        sublabel?: string;
+        sections: Map<string, DepEntry<InputGraphNode>[]>;
+      }
     >();
     for (const entry of deeperInputs) {
-      const { key, label } = documentInfo(entry.node.fileLegalId, ownFileLegalId);
-      if (!byDoc.has(key)) byDoc.set(key, { label, sections: new Map() });
+      const { key, label, sublabel } = documentInfo(
+        entry.node.fileLegalId,
+        ownFileLegalId,
+      );
+      if (!byDoc.has(key)) byDoc.set(key, { label, sublabel, sections: new Map() });
       const doc = byDoc.get(key)!;
       const sectionKey = humanizeCitation(entry.node.fileLegalId);
       if (!doc.sections.has(sectionKey)) doc.sections.set(sectionKey, []);
@@ -170,6 +178,7 @@ export function InputStep({ draft, setDraft }: Props) {
     const docs: InputDocument[] = [...byDoc.entries()].map(([key, v]) => ({
       key,
       label: v.label,
+      sublabel: v.sublabel,
       sections: [...v.sections.entries()]
         .map(([sk, items]) => ({ key: sk, items }))
         .sort((a, b) => a.key.localeCompare(b.key)),
@@ -312,7 +321,7 @@ export function InputStep({ draft, setDraft }: Props) {
           <input
             type="search"
             className="inline-search-input"
-            placeholder={`Search ${totalRelevant} reachable inputs…`}
+            placeholder={`Search ${totalRelevant} available questions…`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -369,10 +378,10 @@ export function InputStep({ draft, setDraft }: Props) {
           {(directInputs.length > 0 || directRelations.length > 0) && (
             <section className="rule-group">
               <div className="rule-group-head rule-group-head-static">
-                <span className="rule-group-label rule-group-featured">Direct factors</span>
+                <span className="rule-group-label rule-group-featured">Most-relevant questions</span>
                 <span className="rule-group-meta">
                   <span className="group-rule-count">
-                    {directInputs.length + directRelations.length} most-direct inputs
+                    {directInputs.length + directRelations.length} closest to your results
                   </span>
                 </span>
               </div>
@@ -458,11 +467,14 @@ export function InputStep({ draft, setDraft }: Props) {
                   aria-expanded={open}
                 >
                   <span className="rule-group-chevron">{open ? "▾" : "▸"}</span>
-                  <span className="rule-doc-label">{doc.label}</span>
+                  <span className="rule-doc-text">
+                    <span className="rule-doc-label">{doc.label}</span>
+                    {doc.sublabel && (
+                      <span className="rule-doc-sublabel">{doc.sublabel}</span>
+                    )}
+                  </span>
                   <span className="rule-doc-meta">
                     {doc.totalItems} input{doc.totalItems === 1 ? "" : "s"}
-                    {" · "}
-                    {doc.sections.length} section{doc.sections.length === 1 ? "" : "s"}
                   </span>
                 </button>
                 {open && (
@@ -525,7 +537,7 @@ export function InputStep({ draft, setDraft }: Props) {
           <section className="selected-panel">
             <header className="selected-panel-head">
               <span className="selected-panel-eyebrow">
-                Exposed inputs · <strong>{exposedCount}</strong>
+                Picked questions · <strong>{exposedCount}</strong>
               </span>
             </header>
             <div className="selected-pills">
