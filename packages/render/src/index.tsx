@@ -9,3 +9,4 @@ export {
   type ComputeResult,
 } from "./compute-client";
 export { parseFormula, type AstNode } from "./formula";
+export { PhysicsGraph } from "./PhysicsGraph";

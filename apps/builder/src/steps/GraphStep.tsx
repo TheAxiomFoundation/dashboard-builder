@@ -1,5 +1,13 @@
-import { useMemo, useState } from "react";
-import { Dashboard, type ParameterRule } from "@dashboard-builder/render";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Dashboard,
+  PhysicsGraph,
+  callCompute,
+  initialState,
+  type ComputeResult,
+  type ParameterRule,
+} from "@dashboard-builder/render";
+import type { TraceNode } from "@dashboard-builder/spec";
 import { computeUrl } from "../api";
 import type { Draft } from "../draft";
 import { exportSpec } from "../draft";
@@ -19,7 +27,7 @@ interface Props {
   parameterRules?: ParameterRule[];
 }
 
-type ReviewView = "overview" | "graph";
+type ReviewView = "overview" | "physics" | "graph";
 
 /**
  * Step IV — Review.
@@ -37,9 +45,30 @@ export function GraphStep({
   onAddOutput,
   parameterRules,
 }: Props) {
-  const spec = exportSpec(draft);
+  // Memoize the spec — exportSpec returns a fresh object each call, and
+  // an unstable identity here would cause PhysicsGraph to rebuild its
+  // model + re-run the force simulation on every parent render.
+  const spec = useMemo(() => exportSpec(draft), [draft]);
   const ready = !!spec && spec.outputs.length > 0;
   const [view, setView] = useState<ReviewView>("overview");
+
+  // Fetch traces once for the physics view. Dashboard (used by the
+  // "graph" tab via previewMode="structure") fetches its own traces
+  // internally, so this is only used by PhysicsGraph.
+  const [traces, setTraces] = useState<Record<string, TraceNode>>({});
+  useEffect(() => {
+    if (!ready || !spec) return;
+    let cancelled = false;
+    const formState = initialState(spec);
+    callCompute(spec, formState, computeUrl)
+      .then((res: ComputeResult) => {
+        if (!cancelled) setTraces(res.traces);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, spec]);
 
   // Decompose draft.outputs into per-main buckets. Each picked main
   // result gets its own group containing the intermediate rules that
@@ -117,7 +146,7 @@ export function GraphStep({
 
   return (
     <div
-      className={`step-body review-step ${view === "graph" ? "review-step-wide" : ""}`}
+      className={`step-body review-step ${view !== "overview" ? "review-step-wide" : ""}`}
     >
       <div className="review-view-toggle" role="tablist" aria-label="Review view">
         <button
@@ -128,6 +157,15 @@ export function GraphStep({
           onClick={() => setView("overview")}
         >
           Overview
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "physics"}
+          className={`review-view-tab ${view === "physics" ? "is-active" : ""}`}
+          onClick={() => setView("physics")}
+        >
+          Wires
         </button>
         <button
           type="button"
@@ -222,6 +260,17 @@ export function GraphStep({
               ) : null,
             )}
           </ReviewSection>
+        </div>
+      ) : view === "physics" ? (
+        <div className="publish-preview publish-preview-graph">
+          <PhysicsGraph
+            spec={spec}
+            traces={traces}
+            onExposeInput={onExposeInput}
+            exposedInputIds={exposedInputIds}
+            onAddOutput={onAddOutput}
+            selectedOutputIds={selectedOutputIds}
+          />
         </div>
       ) : (
         <div className="publish-preview publish-preview-graph">
