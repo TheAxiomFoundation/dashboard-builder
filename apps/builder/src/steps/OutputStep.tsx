@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
 import type { Draft, OutputSelection } from "../draft";
-import { humanize, pruneUnreachable, selectOutput } from "../draft";
+import {
+  humanize,
+  humanizeWithoutPrefix,
+  pruneUnreachable,
+  selectOutput,
+} from "../draft";
 import type { RuleNode } from "../api";
 import { axiomAppUrl, documentInfo, humanizeCitation } from "../citations";
 import { validateOutput } from "../validators";
@@ -36,6 +41,8 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
 
   const graph = draft.graph;
   if (!graph) return <div className="empty-hint">Pick a program first.</div>;
+
+  const labelPrefix = curatedForDraft(draft.program)?.labelPrefix;
 
   const selectedIds = new Set(draft.outputs.map((o) => o.legalId));
   const allRules = graph.rules.filter((r) => r.kind === "derived");
@@ -349,6 +356,7 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
                 selection={draft.outputs.find(
                   (o) => o.legalId === rule.legalId,
                 )}
+                labelPrefix={labelPrefix}
                 onToggle={() => toggle(rule.legalId)}
               />
             ))}
@@ -358,14 +366,35 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
     );
   };
 
-  const hasSidebar = draft.outputs.length > 0;
+  const hasPicks = draft.outputs.length > 0;
   return (
-    <div className={`step-body ${hasSidebar ? "step-with-sidebar" : ""}`}>
-      <div className="step-main">
-      <p className="output-stage-prompt">
-        Surface any intermediate steps too — gross income, deductions, etc. —
-        if you want users to see how the result was derived. Skip if not.
-      </p>
+    <div className="step-body step-narrow">
+      {hasPicks && (
+        <section className="picked-strip" aria-label="Picked results">
+          <div className="picked-strip-head">
+            <span className="picked-strip-label">
+              Picked results · <strong>{draft.outputs.length}</strong>
+            </span>
+          </div>
+          <div className="picked-strip-pills">
+            {draft.outputs.map((selection) => (
+              <span key={selection.legalId} className="selected-pill">
+                <span className="label" title={selection.label}>
+                  {selection.label}
+                </span>
+                <button
+                  className="selected-pill-remove"
+                  onClick={() => toggle(selection.legalId)}
+                  title="Remove"
+                  aria-label="Remove"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Hide the search once every compatible rule is selected — no
           point typing into a list that's empty. */}
@@ -378,16 +407,6 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="summary-stats">
-            <span><strong>{draft.outputs.length}</strong> picked</span>
-            {q ? (
-              <span>{flatRanked.length} matching</span>
-            ) : (
-              <span>
-                {categories.length} categor{categories.length === 1 ? "y" : "ies"}
-              </span>
-            )}
-          </div>
         </div>
       )}
 
@@ -402,6 +421,7 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
               isSelected={selectedIds.has(rule.legalId)}
               isTerminal={terminal.has(rule.legalId)}
               selection={draft.outputs.find((o) => o.legalId === rule.legalId)}
+              labelPrefix={labelPrefix}
               onToggle={() => toggle(rule.legalId)}
             />
           ))}
@@ -433,11 +453,7 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
               >
                 <header className="output-main-bucket-head">
                   <span className="output-main-bucket-label">
-                    For {m.label}
-                  </span>
-                  <span className="output-main-bucket-meta">
-                    {totalIntermediates} rule
-                    {totalIntermediates === 1 ? "" : "s"} feeding it
+                    {m.label} breakdown
                   </span>
                 </header>
                 {totalIntermediates === 0 ? (
@@ -457,35 +473,6 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
         // No curated mains picked — flat list of category rollups.
         <>{categories.map((cat) => renderCategorySection(cat, cat.key))}</>
       )}
-      </div>
-      {hasSidebar && (
-        <aside className="step-sidebar">
-          <section className="selected-panel">
-            <header className="selected-panel-head">
-              <span className="selected-panel-eyebrow">
-                Picked results · <strong>{draft.outputs.length}</strong>
-              </span>
-            </header>
-            <div className="selected-pills">
-              {draft.outputs.map((selection) => (
-                <span key={selection.legalId} className="selected-pill">
-                  <span className="label" title={selection.label}>
-                    {selection.label}
-                  </span>
-                  <button
-                    className="selected-pill-remove"
-                    onClick={() => toggle(selection.legalId)}
-                    title="Remove"
-                    aria-label="Remove"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          </section>
-        </aside>
-      )}
     </div>
   );
 }
@@ -495,30 +482,39 @@ function RuleRow({
   isSelected,
   isTerminal,
   selection,
+  labelPrefix,
   onToggle,
 }: {
   rule: RuleNode;
   isSelected: boolean;
   isTerminal: boolean;
   selection: OutputSelection | undefined;
+  labelPrefix: string | undefined;
   onToggle: () => void;
 }) {
+  const label =
+    selection?.label ?? humanizeWithoutPrefix(rule.name, labelPrefix);
   return (
-    <div>
-      <div className={`chip ${isSelected ? "chip-selected" : ""}`}>
-        <label>
-          <input type="checkbox" checked={isSelected} onChange={onToggle} />
-          <span className="label">
-            {selection?.label ?? humanize(rule.name)}
-          </span>
-        </label>
-        <div className="chip-actions">
-          {isTerminal && !isSelected && (
-            <span className="terminal-tag">headline</span>
-          )}
-        </div>
-      </div>
-    </div>
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={isSelected}
+      className={`rule-toggle ${isSelected ? "is-selected" : ""}`}
+      onClick={onToggle}
+    >
+      <span className="rule-toggle-label" title={label}>
+        {label}
+      </span>
+      {isTerminal && !isSelected && (
+        <span className="terminal-tag">headline</span>
+      )}
+      <span
+        className={`rule-toggle-mark ${isSelected ? "is-on" : ""}`}
+        aria-hidden="true"
+      >
+        {isSelected ? "✓" : "+"}
+      </span>
+    </button>
   );
 }
 

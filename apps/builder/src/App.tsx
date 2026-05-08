@@ -79,7 +79,7 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const step = useMemo(
+  const baseStep = useMemo(
     () => STEPS.find((s) => s.id === stepId) ?? STEPS[0]!,
     [stepId],
   );
@@ -109,6 +109,26 @@ export function App() {
   useEffect(() => {
     if (stepId !== "outputs") setOutputStage("main");
   }, [stepId]);
+
+  // Step II's intermediates sub-stage gets a different lede — by then
+  // the user has already picked their main result(s), so the prompt
+  // shifts to "do you want to surface the intermediate steps too?"
+  // instead of "what should the calculator tell the user?".
+  const step = useMemo(() => {
+    if (baseStep.id === "outputs" && outputStage === "intermediates") {
+      return {
+        ...baseStep,
+        lede: (
+          <>
+            Surface any intermediate steps too — gross income, deductions,
+            etc. — if you want users to see how the result was derived. Skip
+            if not.
+          </>
+        ),
+      };
+    }
+    return baseStep;
+  }, [baseStep, outputStage]);
 
   function next() {
     if (stepId === "outputs" && outputStage === "main") {

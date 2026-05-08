@@ -87,6 +87,24 @@ export function humanize(name: string): string {
   return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Humanize a snake_case name and strip a leading program prefix
+ * (e.g. `snap_eligible` → `Eligible` when prefix = "snap"). The prefix
+ * comes from CuratedProgram.labelPrefix and only applies at the start
+ * of the name, so things like `is_snap_household` are left alone. */
+export function humanizeWithoutPrefix(
+  name: string,
+  prefix: string | undefined,
+): string {
+  let base = name;
+  if (prefix) {
+    const lead = `${prefix.toLowerCase()}_`;
+    if (base.toLowerCase().startsWith(lead) && base.length > lead.length) {
+      base = base.slice(lead.length);
+    }
+  }
+  return humanize(base);
+}
+
 /**
  * Walk the rule graph from each selected output through `ruleDeps`,
  * collecting every input/relation that any remaining output transitively

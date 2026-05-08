@@ -296,20 +296,18 @@ body, html, #root {
 }
 
 .wizard-pane {
-  padding: 48px 64px 64px;
+  padding: 32px 56px 56px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
-  /* Cap the wizard width on very wide screens so the picker chips
-     don't stretch into 2000px-wide rows, but allow plenty of room for
-     the two-column step (picker + sticky sidebar). Step I overrides
-     this with its own narrower max-width via .wizard-centered. */
-  max-width: 1480px;
+  gap: 24px;
+  /* Cap the wizard width on very wide screens so content doesn't sprawl
+     into a sea of whitespace. Step I overrides this with its narrower
+     760px max-width via .wizard-centered. */
+  max-width: 1280px;
   width: 100%;
   margin: 0 auto;
   /* No max-height / overflow here — the page is the single scroll
-     container. (Used to be a per-pane scroll when the right rail was
-     alongside; that rail is gone, so we can just flow.) */
+     container. */
 }
 
 .preview-pane {
@@ -549,18 +547,15 @@ body, html, #root {
 .step-heading {
   font-family: var(--f-display);
   font-weight: 300;
-  /* Hero-scale on every step, not just Step I. The picker / inputs / demo
-     pages have plenty of room now that the right rail is gone, and the
-     larger heading anchors each step as its own section rather than a
-     small pip stacked above a giant card. Centered so the user reads
-     each step's title before scanning the (typically left-aligned)
-     content below. */
-  font-size: clamp(1.9rem, 3vw, 2.6rem);
-  line-height: 1.1;
+  /* Step I owns the hero treatment via .wizard-centered; subsequent
+     steps get a more compact heading so the picker has room to breathe
+     instead of dropping below 240px of header chrome. */
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+  line-height: 1.15;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--color-ink);
-  margin: 16px 0 18px;
+  margin: 8px 0 14px;
   text-align: center;
 }
 
@@ -575,11 +570,11 @@ body, html, #root {
 
 .step-lede {
   font-family: var(--f-serif);
-  font-size: 17px;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 1.55;
   color: var(--color-ink-secondary);
   max-width: 60ch;
-  margin: 0 auto 32px;
+  margin: 0 auto 20px;
   text-align: center;
 }
 
@@ -1351,40 +1346,53 @@ body, html, #root {
   color: var(--color-ink);
 }
 
-/* Two-column layout for the picker steps: main picker on the left,
-   sticky "selected" sidebar on the right. The sidebar pins to the
-   top of the viewport on scroll so the user always sees what
-   they've picked without scrolling back up. */
-.step-with-sidebar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 40px;
-  align-items: start;
-}
-.step-with-sidebar .step-main {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-.step-sidebar {
-  position: sticky;
-  top: 24px;
-}
-.step-sidebar .selected-panel {
-  margin-bottom: 0;
+/* Picker steps (II / III): cap the body to a focused reading width so
+   each row reads as a deliberate choice rather than a wide bar of
+   whitespace on a 2000px monitor. */
+.step-body.step-narrow {
+  max-width: 820px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
 }
 
-/* Narrow viewports — collapse to a single column with the sidebar
-   stacked on top so the user still sees their picks. */
-@media (max-width: 900px) {
-  .step-with-sidebar {
-    grid-template-columns: 1fr;
-  }
-  .step-sidebar {
-    position: static;
-    order: -1;
-  }
+/* Compact sticky strip showing what's picked. Single horizontal row;
+   pills wrap if there are many. Minimal chrome — just a hairline
+   below — so it doesn't compete with the picker for attention. */
+.picked-strip {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  margin-bottom: 8px;
+  background: var(--color-paper);
+  border-bottom: 1px solid var(--color-rule);
+}
+.picked-strip-head {
+  flex-shrink: 0;
+}
+.picked-strip-label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+.picked-strip-label strong {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.picked-strip-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
 }
 
 /* Compact pill row for the "selected outputs" / "exposed inputs"
@@ -1472,18 +1480,18 @@ body, html, #root {
 .inline-search {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-bottom: 4px;
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
 .inline-search-input {
   width: 100%;
   border: 1px solid var(--color-rule);
   border-radius: 3px;
-  padding: 11px 14px;
+  padding: 9px 12px;
   font: inherit;
-  font-size: 14px;
-  background: var(--color-paper-elevated);
+  font-size: 13px;
+  background: var(--color-paper);
   color: var(--color-ink);
 }
 
@@ -1514,8 +1522,147 @@ body, html, #root {
   gap: 4px;
 }
 
+/* Inside an expanded category, rules render as a 2-column grid of
+   click-to-toggle rows. No bordered cards, no checkbox UI — the whole
+   row is the affordance, with a clear accent state when picked. */
 .rule-list-grouped {
-  padding: 2px 0 6px;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 12px;
+  padding: 4px 0 8px 14px;
+}
+@media (max-width: 720px) {
+  .rule-list-grouped {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Toggle row — the click target is the entire row. Border-left
+   indicator shows up when selected so the user's eye registers the
+   change without a checkbox glyph. */
+.rule-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-ink);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 3px;
+  padding: 7px 10px 7px 8px;
+  cursor: pointer;
+  min-width: 0;
+  transition: background 120ms var(--ease-out),
+              border-color 120ms var(--ease-out),
+              color 120ms var(--ease-out);
+}
+.rule-toggle:hover {
+  background: var(--color-rule-subtle);
+}
+.rule-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.rule-toggle.is-selected {
+  background: var(--color-accent-light, rgba(180, 83, 9, 0.1));
+  border-left-color: var(--color-accent);
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.rule-toggle.is-selected:hover {
+  background: var(--color-accent-light, rgba(180, 83, 9, 0.16));
+}
+
+.rule-toggle-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Inline action button (Edit / Done) that lives inside an exposed
+   row. Stops click propagation so toggling the row doesn't fire
+   when the user clicks the button. */
+.rule-toggle-action {
+  flex-shrink: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition: background 120ms var(--ease-out),
+              color 120ms var(--ease-out),
+              border-color 120ms var(--ease-out);
+}
+.rule-toggle-action:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-paper);
+}
+
+/* Tag to the right of a label: "per member" / "relation" — explains
+   that the row exposes a repeating block, not a single field. */
+.per-member-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  background: var(--color-rule-subtle);
+  color: var(--color-ink-muted);
+  vertical-align: middle;
+}
+
+/* Circle badge with "+" (add) or "✓" (added). Reads as a button without
+   needing a real <button> wrapping it — the parent row is the click
+   target; the badge is a visual affordance that flips state on toggle. */
+.rule-toggle-mark {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--color-rule);
+  background: var(--color-paper);
+  color: var(--color-ink-muted);
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  transition: background 120ms var(--ease-out),
+              border-color 120ms var(--ease-out),
+              color 120ms var(--ease-out),
+              transform 120ms var(--ease-out);
+}
+.rule-toggle:hover .rule-toggle-mark {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.rule-toggle-mark.is-on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-paper);
+}
+.rule-toggle.is-selected:hover .rule-toggle-mark.is-on {
+  background: var(--color-ink);
+  border-color: var(--color-ink);
 }
 
 .rule-group {
@@ -1577,10 +1724,27 @@ body, html, #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  color: var(--color-ink-muted);
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule);
+  color: var(--color-ink);
   font-size: 11px;
   flex-shrink: 0;
+  transition: background 140ms var(--ease-out),
+              border-color 140ms var(--ease-out),
+              color 140ms var(--ease-out);
+}
+.rule-doc-head:hover .rule-group-chevron {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-paper);
+}
+.rule-doc-head[aria-expanded="true"] .rule-group-chevron {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-paper);
 }
 
 .rule-group-text {
@@ -1643,52 +1807,79 @@ body, html, #root {
    Section-level groups now nest inside rather than living as siblings,
    so the user sees ~4 documents instead of 116 sibling sections. */
 
+/* List-style category rows — clean hairline-separated rows, no chunky
+   bordered cards. Each row is a row in a list; the typography does
+   the work, not heavy backgrounds. */
 .rule-doc {
-  background: var(--color-paper-elevated);
-  border: 1px solid var(--color-rule);
-  border-radius: 4px;
-  margin-bottom: 12px;
-  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--color-rule-subtle);
+  border-radius: 0;
+  margin-bottom: 0;
+}
+.rule-doc:last-child {
+  border-bottom: 1px solid var(--color-rule-subtle);
 }
 
+/* Headlines block keeps a subtle accent treatment so it stands apart
+   from the regular categories below. */
 .rule-doc-headlines {
-  border-color: var(--color-accent-line);
-  background: var(--color-paper-elevated);
+  border-top: 0;
+  border-left: 2px solid var(--color-accent-line);
+  margin-bottom: 8px;
+  padding-left: 6px;
 }
-.rule-doc-headlines .rule-doc-head {
-  background: var(--color-accent-light);
+.rule-doc-headlines + .rule-doc {
+  border-top: 1px solid var(--color-rule-subtle);
 }
 
 .rule-doc-head {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
+  gap: 12px;
+  padding: 10px 12px 10px 8px;
   border: none;
-  background: var(--color-rule-subtle);
-  border-bottom: 1px solid var(--color-rule);
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+  background: transparent;
   font: inherit;
   cursor: pointer;
   text-align: left;
-  transition: background 120ms;
+  transition: background 140ms var(--ease-out),
+              border-color 140ms var(--ease-out),
+              color 140ms var(--ease-out);
 }
 .rule-doc-head:hover {
-  background: var(--color-accent-light);
+  background: var(--color-rule-subtle);
+  border-left-color: var(--color-accent);
+}
+.rule-doc-head:hover .rule-doc-label {
+  color: var(--color-accent);
+}
+.rule-doc-head:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.rule-doc-head[aria-expanded="true"] {
+  border-left-color: var(--color-accent);
 }
 .rule-doc-head-static {
   cursor: default;
-  background: var(--color-accent-light);
 }
 .rule-doc-head-static:hover {
-  background: var(--color-accent-light);
+  background: transparent;
+  border-left-color: transparent;
+}
+.rule-doc-head-static:hover .rule-doc-label {
+  color: var(--color-ink);
 }
 
 .rule-doc-label {
-  font-family: var(--f-display);
-  font-size: 14px;
+  font-family: var(--f-body);
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   color: var(--color-ink);
   flex: 1;
   min-width: 0;
@@ -1707,7 +1898,7 @@ body, html, #root {
 }
 
 .rule-doc-body {
-  padding: 4px 0 8px;
+  padding: 0 0 8px 14px;
 }
 
 .rule-section {
@@ -2128,9 +2319,10 @@ body, html, #root {
    reveals the full document picker for power users. */
 
 .output-stage-prompt {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--color-ink-secondary);
-  margin: 0 0 12px;
+  margin: 0 0 10px;
+  line-height: 1.45;
 }
 
 /* Stage 1 of Step II — cards-only, centered, no sidebar. The Continue
@@ -2219,24 +2411,29 @@ body, html, #root {
    level result, so the user thinks "what feeds Eligibility?" vs "what
    feeds Benefit amount?" instead of one undifferentiated pile. */
 .output-main-bucket {
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
 .output-main-bucket-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 2px 10px;
-  border-bottom: 1px solid var(--color-rule);
-  margin-bottom: 12px;
+  padding: 0 4px 6px;
+  margin-bottom: 0;
 }
 .output-main-bucket-label {
-  font-size: 14px;
-  font-weight: 600;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--color-accent);
 }
 .output-main-bucket-meta {
-  font-size: 12px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--color-ink-muted);
 }
 
@@ -2309,59 +2506,87 @@ body, html, #root {
   }
 }
 
-/* Indent intermediate results inside their main bucket so the user
-   reads "Eligibility · Snap Eligible" and the rules feeding it as a
-   nested list. */
+/* Each main result + its intermediates form a bucket. The bucket
+   label sits as a small eyebrow above the list. */
 .review-item-indent {
-  padding-left: 14px;
+  padding-left: 16px;
+  position: relative;
   font-size: 13px;
   color: var(--color-ink-secondary);
 }
+.review-item-indent::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 6px;
+  height: 1px;
+  background: var(--color-rule);
+}
 
+/* Lighter section cards — hairline border instead of full elevated
+   panel, paper background tying into the page. */
 .review-section {
-  border: 1px solid var(--color-rule);
+  border: 1px solid var(--color-rule-subtle);
   border-radius: 6px;
-  background: var(--color-paper-elevated);
-  padding: 14px 16px 12px;
+  background: var(--color-paper);
+  padding: 16px 18px 14px;
 }
 .review-section-head {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-rule-subtle);
 }
 .review-section-label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--color-ink);
+  letter-spacing: 0;
 }
 .review-section-count {
-  font-size: 12px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--color-ink-muted);
-  background: var(--color-rule-subtle);
-  padding: 1px 8px;
-  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
 }
 .review-empty {
   margin: 4px 0 2px;
   font-size: 13px;
   color: var(--color-ink-muted);
+  font-style: italic;
 }
 
 .review-subsection {
-  margin-bottom: 8px;
+  margin-bottom: 14px;
 }
-.review-subsection:last-child { margin-bottom: 0; }
+.review-subsection:last-child {
+  margin-bottom: 0;
+}
+
+/* Eyebrow-style subsection label — matches the picker's section
+   heads. */
 .review-subsection-label {
-  font-size: 11px;
+  font-family: var(--f-mono);
+  font-size: 10px;
   font-weight: 500;
-  color: var(--color-ink-muted);
-  margin-bottom: 3px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin-bottom: 6px;
 }
+
 .review-subsection-relation {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--color-rule);
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-rule-subtle);
 }
 
 .review-list {
@@ -2372,21 +2597,40 @@ body, html, #root {
   flex-direction: column;
   gap: 2px;
 }
+
 .review-item {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 10px;
   font-size: 13.5px;
   color: var(--color-ink);
-  line-height: 1.4;
+  line-height: 1.45;
+  padding: 3px 0;
 }
 .review-item-label {
   flex: 1;
   min-width: 0;
+  word-break: break-word;
 }
-.review-item-meta {
-  font-size: 12px;
+
+/* Tag — small mono badge. Used for dtype on questions and a "main"
+   marker on the picked-result row. */
+.review-item-tag {
+  flex-shrink: 0;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--color-ink-muted);
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--color-rule-subtle);
+  align-self: center;
+}
+.review-item-tag.is-main {
+  color: var(--color-accent);
+  background: var(--color-accent-light, rgba(180, 83, 9, 0.1));
 }
 
 .review-graph-hint {

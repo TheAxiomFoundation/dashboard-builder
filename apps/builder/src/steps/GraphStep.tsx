@@ -5,6 +5,17 @@ import type { Draft } from "../draft";
 import { exportSpec } from "../draft";
 import { curatedForDraft } from "./ProgramStep";
 
+/** Strip a leading "Snap " (Title-Case version of the program prefix)
+ * from a stored label so the review screen reads cleanly. We don't
+ * mutate the underlying label — the user might have customized it,
+ * and stripping at display time leaves their edits intact. */
+function displayLabel(label: string, prefix: string | undefined): string {
+  if (!prefix) return label;
+  const lead =
+    prefix.charAt(0).toUpperCase() + prefix.slice(1).toLowerCase() + " ";
+  return label.startsWith(lead) ? label.slice(lead.length) : label;
+}
+
 interface Props {
   draft: Draft;
   /** Set of currently-exposed input legal IDs (so the graph labels them correctly). */
@@ -40,6 +51,7 @@ export function GraphStep({
   const spec = exportSpec(draft);
   const ready = !!spec && spec.outputs.length > 0;
   const [view, setView] = useState<ReviewView>("overview");
+  const labelPrefix = curatedForDraft(draft.program)?.labelPrefix;
 
   // Decompose draft.outputs into per-main buckets. Each picked main
   // result gets its own group containing the intermediate rules that
@@ -148,20 +160,26 @@ export function GraphStep({
             empty="No results picked yet."
           >
             {overview.buckets.map((b) => (
-              <div key={b.main?.legalId ?? b.label} className="review-subsection">
-                <div className="review-subsection-label">For {b.label}</div>
+              <div
+                key={b.main?.legalId ?? b.label}
+                className="review-subsection"
+              >
+                <div className="review-subsection-label">{b.label}</div>
                 <ul className="review-list">
                   {b.main && (
                     <li className="review-item">
-                      <span className="review-item-label">
-                        {b.label}
-                        <span className="review-item-meta">main</span>
-                      </span>
+                      <span className="review-item-label">{b.label}</span>
+                      <span className="review-item-tag is-main">main</span>
                     </li>
                   )}
                   {b.intermediates.map((o) => (
-                    <li key={o.legalId} className="review-item review-item-indent">
-                      <span className="review-item-label">{o.label}</span>
+                    <li
+                      key={o.legalId}
+                      className="review-item review-item-indent"
+                    >
+                      <span className="review-item-label">
+                        {displayLabel(o.label, labelPrefix)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -175,7 +193,9 @@ export function GraphStep({
                 <ul className="review-list">
                   {overview.orphanedIntermediates.map((o) => (
                     <li key={o.legalId} className="review-item">
-                      <span className="review-item-label">{o.label}</span>
+                      <span className="review-item-label">
+                        {displayLabel(o.label, labelPrefix)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -195,8 +215,10 @@ export function GraphStep({
               <ul className="review-list">
                 {draft.inputs.map((inp) => (
                   <li key={inp.legalId} className="review-item">
-                    <span className="review-item-label">{inp.label}</span>
-                    <span className="review-item-meta">{inp.dtype}</span>
+                    <span className="review-item-label">
+                      {displayLabel(inp.label, labelPrefix)}
+                    </span>
+                    <span className="review-item-tag">{inp.dtype}</span>
                   </li>
                 ))}
               </ul>
@@ -208,13 +230,15 @@ export function GraphStep({
                   className="review-subsection review-subsection-relation"
                 >
                   <div className="review-subsection-label">
-                    {rel.label} — per-member questions
+                    {displayLabel(rel.label, labelPrefix)} · per member
                   </div>
                   <ul className="review-list">
                     {rel.memberInputs.map((m) => (
                       <li key={m.legalId} className="review-item">
-                        <span className="review-item-label">{m.label}</span>
-                        <span className="review-item-meta">{m.dtype}</span>
+                        <span className="review-item-label">
+                          {displayLabel(m.label, labelPrefix)}
+                        </span>
+                        <span className="review-item-tag">{m.dtype}</span>
                       </li>
                     ))}
                   </ul>
