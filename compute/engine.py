@@ -558,7 +558,9 @@ def _infer_repo(program_yaml: Path) -> str:
     return ""
 
 
-_MISSING_INPUT_RE = re.compile(r"missing input `([^`]+)`")
+_MISSING_INPUT_RE = re.compile(
+    r"missing input `([^`]+)`(?: for entity `([^`]+)`)?"
+)
 _BARE_NAME_RE = re.compile(r"dataset input `([^`]+)` must use an absolute legal RuleSpec reference")
 _TYPE_MISMATCH_RE = re.compile(r"type mismatch: right side of comparison is not numeric")
 
@@ -616,7 +618,10 @@ def _run_with_missing_input_retries(
     references it, and try `<file>#input.<name>` candidates until the engine
     accepts one.
     """
-    rejected_legal_ids: set[str] = set()
+    # Keyed (legal_id, entity_class) — "person" misses and "household"
+    # misses for the same legal ID are tracked separately so adding the
+    # default under one scope doesn't preempt a retry under the other.
+    rejected_legal_ids: set[tuple[str, str]] = set()
     pending_candidates: dict[str, list[str]] = {}
     # Track records by (name, entity_id) so we don't mark a per-member input
     # as "tried" after flipping just one member — every relation member is a
@@ -700,7 +705,7 @@ def _run_with_missing_input_retries(
                 for rec in request_payload["dataset"]["inputs"]
                 if rec["name"] != bare_name
             ]
-            rejected_legal_ids.add(bare_name)
+            rejected_legal_ids.add((bare_name, "bare"))
 
             if bare_name not in pending_candidates:
                 try:
@@ -727,20 +732,52 @@ def _run_with_missing_input_retries(
 
         if miss_match:
             legal_id = miss_match.group(1)
-            if legal_id in rejected_legal_ids:
+            miss_entity_id = miss_match.group(2) or ""
+            entity_class = (
+                "person" if miss_entity_id.startswith("person:") else "household"
+            )
+            rejection_key = (legal_id, entity_class)
+            if rejection_key in rejected_legal_ids:
                 raise RuntimeError(
                     f"axiom-rules: defaulting input `{legal_id}` doesn't satisfy the engine. "
                     f"Last stderr: {stderr.strip()}"
                 )
-            rejected_legal_ids.add(legal_id)
+            rejected_legal_ids.add(rejection_key)
             value = _infer_default_value(legal_id)
-            request_payload["dataset"]["inputs"].append({
-                "name": legal_id,
-                "entity": "Household",
-                "entity_id": entity_id,
-                "interval": {"start": interval_start, "end": interval_end},
-                "value": value,
-            })
+            if entity_class == "person":
+                # The engine only complains about one missing person at a
+                # time; fill the default for every person already in the
+                # dataset so we don't burn retries one member at a time.
+                # Pull person IDs from existing input records and from
+                # relation tuples (in case some persons have no inputs yet).
+                person_ids: set[str] = set()
+                for rec in request_payload["dataset"]["inputs"]:
+                    if rec.get("entity") == "Person":
+                        eid = rec.get("entity_id")
+                        if eid:
+                            person_ids.add(eid)
+                for rel in request_payload["dataset"].get("relations", []):
+                    for tup_id in rel.get("tuple", []):
+                        if isinstance(tup_id, str) and tup_id.startswith("person:"):
+                            person_ids.add(tup_id)
+                if not person_ids:
+                    person_ids = {miss_entity_id or "person:1"}
+                for pid in sorted(person_ids):
+                    request_payload["dataset"]["inputs"].append({
+                        "name": legal_id,
+                        "entity": "Person",
+                        "entity_id": pid,
+                        "interval": {"start": interval_start, "end": interval_end},
+                        "value": value,
+                    })
+            else:
+                request_payload["dataset"]["inputs"].append({
+                    "name": legal_id,
+                    "entity": "Household",
+                    "entity_id": entity_id,
+                    "interval": {"start": interval_start, "end": interval_end},
+                    "value": value,
+                })
             continue
 
         raise RuntimeError(f"axiom-rules failed: {stderr.strip()}")

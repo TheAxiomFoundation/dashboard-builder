@@ -39,6 +39,11 @@ export interface CuratedProgram {
   label: string;
   /** Curated "main results" surfaced as cards on Step II. Order matters. */
   mainOutputs?: CuratedMainOutput[];
+  /** Snake-case prefix to strip from rule names before humanizing. The
+   * program acronym repeats on every rule (e.g. `snap_*`), and showing
+   * "Snap X" / "Snap Y" / "Snap Z" stacked down the picker just adds
+   * visual noise — the user already knows they're in SNAP. */
+  labelPrefix?: string;
 }
 
 const CURATED_PROGRAMS: CuratedProgram[] = [
@@ -46,6 +51,7 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
     repo: "rules-us-co",
     path: "policies/cdhs/snap/fy-2026-benefit-calculation.yaml",
     label: "Colorado SNAP",
+    labelPrefix: "snap",
     mainOutputs: [
       {
         legalId:
