@@ -1,10 +1,10 @@
-"""Rule-pack registry — keeps local clones of TheAxiomFoundation/rules-* repos.
+"""Rule-pack registry — keeps local clones of TheAxiomFoundation/rulespec-* repos.
 
 Two reasons we clone instead of fetching individual files at request time:
 
 1. RuleSpec programs `import:` other YAML files across the same repo and
    across federal/state repos. The compiler needs them all on disk.
-2. axiom-rules resolves `<jurisdiction>:<path>` imports by walking sibling
+2. axiom-rules-engine resolves `<jurisdiction>:<path>` imports by walking sibling
    repos. We replicate that layout.
 """
 
@@ -19,21 +19,21 @@ from pathlib import Path
 import yaml
 
 DEFAULT_REPOS = [
-    "rules-us",
-    "rules-us-co",
-    "rules-us-ca",
-    "rules-us-ny",
-    "rules-us-tx",
-    "rules-us-fl",
-    "rules-us-ga",
-    "rules-us-md",
-    "rules-us-nc",
-    "rules-us-sc",
-    "rules-us-tn",
-    "rules-us-al",
-    "rules-us-ar",
-    "rules-uk",
-    "rules-ca",
+    "rulespec-us",
+    "rulespec-us-co",
+    "rulespec-us-ca",
+    "rulespec-us-ny",
+    "rulespec-us-tx",
+    "rulespec-us-fl",
+    "rulespec-us-ga",
+    "rulespec-us-md",
+    "rulespec-us-nc",
+    "rulespec-us-sc",
+    "rulespec-us-tn",
+    "rulespec-us-al",
+    "rulespec-us-ar",
+    "rulespec-uk",
+    "rulespec-ca",
 ]
 
 
@@ -44,7 +44,7 @@ class RegistryConfig:
 
     @classmethod
     def from_env(cls) -> "RegistryConfig":
-        env_root = os.environ.get("AXIOM_RULES_ROOT")
+        env_root = os.environ.get("AXIOM_RULESPEC_ROOT")
         if env_root:
             return cls(root=Path(env_root).expanduser().resolve())
         # Sibling of dashboard-builder so jurisdiction:path imports resolve.

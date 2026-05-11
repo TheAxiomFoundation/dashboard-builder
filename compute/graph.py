@@ -44,7 +44,7 @@ RESERVED = frozenset({
     "if", "else", "elif", "and", "or", "not", "in", "is", "true", "false", "none",
     # builtins
     "min", "max", "abs", "round", "floor", "ceil", "len",
-    # axiom-rules functions seen in CO SNAP formulas
+    # axiom-rules-engine functions seen in CO SNAP formulas
     "count_where", "sum_where", "where", "count", "any", "all",
     # types occasionally referenced
     "money", "decimal", "integer", "boolean", "date",
@@ -112,16 +112,16 @@ class ProgramGraph:
 
 
 def _file_legal_id(repo: str, path: str) -> str:
-    """`rules-us-co` + `regulations/10-ccr-2506-1/4.207.3.yaml` → `us-co:regulations/10-ccr-2506-1/4.207.3`."""
+    """`rulespec-us-co` + `regulations/10-ccr-2506-1/4.207.3.yaml` → `us-co:regulations/10-ccr-2506-1/4.207.3`."""
     jurisdiction = repo[len("rules-"):] if repo.startswith("rules-") else repo
     cleaned = path.removesuffix(".yaml")
     return f"{jurisdiction}:{cleaned}"
 
 
 def _import_to_repo_path(import_id: str) -> tuple[str, str]:
-    """`us-co:regulations/10-ccr-2506-1/4.207.3` → (`rules-us-co`, `regulations/10-ccr-2506-1/4.207.3.yaml`)."""
+    """`us-co:regulations/10-ccr-2506-1/4.207.3` → (`rulespec-us-co`, `regulations/10-ccr-2506-1/4.207.3.yaml`)."""
     jurisdiction, _, body = import_id.partition(":")
-    return f"rules-{jurisdiction}", f"{body}.yaml"
+    return f"rulespec-{jurisdiction}", f"{body}.yaml"
 
 
 def _tokenize_formula(formula: str) -> set[str]:

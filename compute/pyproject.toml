@@ -1,7 +1,7 @@
 [project]
 name = "dashboard-builder-compute"
 version = "0.0.1"
-description = "FastAPI compute service for dashboard-builder, wrapping axiom-rules"
+description = "FastAPI compute service for dashboard-builder, wrapping axiom-rules-engine"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115",
@@ -14,9 +14,9 @@ dependencies = [
 
 [project.optional-dependencies]
 engine = [
-  # axiom-rules Python wrapper. Install in editable mode from a local clone:
-  #   uv pip install -e ../../axiom-rules
-  # Set AXIOM_RULES_BIN to the compiled binary path before running uvicorn.
+  # axiom-rules-engine Python wrapper. Install in editable mode from a local clone:
+  #   uv pip install -e ../../axiom-rules-engine
+  # Set AXIOM_RULES_ENGINE_BIN to the compiled binary path before running uvicorn.
 ]
 
 [build-system]

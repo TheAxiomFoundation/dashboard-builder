@@ -1,9 +1,9 @@
-"""Wrap axiom-rules so the rest of the service treats it as a black-box function.
+"""Wrap axiom-rules-engine so the rest of the service treats it as a black-box function.
 
 We support two modes, picked at runtime:
 
-* `real`   — `axiom_rules` Python package is importable and an
-              `AXIOM_RULES_BIN` env var points to the compiled engine binary.
+* `real`   — `axiom_rules_engine` Python package is importable and an
+              `AXIOM_RULES_ENGINE_BIN` env var points to the compiled engine binary.
               We compile the requested program once, cache the artifact, and
               run compiled executions per request.
 * `demo`   — neither is available. We return the .test.yaml expected outputs
@@ -43,11 +43,11 @@ class ComputeMode:
 
 
 def detect_mode() -> ComputeMode:
-    binary = os.environ.get("AXIOM_RULES_BIN")
+    binary = os.environ.get("AXIOM_RULES_ENGINE_BIN")
     if not binary:
-        return ComputeMode("demo", "AXIOM_RULES_BIN not set; serving expected outputs from .test.yaml")
+        return ComputeMode("demo", "AXIOM_RULES_ENGINE_BIN not set; serving expected outputs from .test.yaml")
     if not Path(binary).exists():
-        return ComputeMode("demo", f"AXIOM_RULES_BIN={binary} does not exist; falling back to demo mode")
+        return ComputeMode("demo", f"AXIOM_RULES_ENGINE_BIN={binary} does not exist; falling back to demo mode")
     return ComputeMode("real", f"using engine at {binary}")
 
 
@@ -61,7 +61,7 @@ def _month_bounds(period: str) -> tuple[str, str]:
 
 
 def _coerce_value(raw: Any) -> dict[str, Any]:
-    """Convert a Python value to axiom-rules ScalarValue dict."""
+    """Convert a Python value to axiom-rules-engine ScalarValue dict."""
     if isinstance(raw, bool):
         return {"kind": "bool", "value": raw}
     if isinstance(raw, int):
@@ -94,7 +94,7 @@ def _flat_inputs_to_records(
                 continue
             for idx, member in enumerate(value, start=1):
                 member_id = f"person:{idx}"
-                # axiom-rules convention: related entity first, current
+                # axiom-rules-engine convention: related entity first, current
                 # (host) entity second. count_where iterates the related
                 # slot and looks up its inputs there. Inverting these has
                 # been silently dropping every per-member input.
@@ -357,7 +357,7 @@ def execute_real(
     queried_outputs: list[str],
     period: str,
 ) -> dict[str, Any]:
-    """Run the axiom-rules engine against a program, return outputs + traces.
+    """Run the axiom-rules-engine engine against a program, return outputs + traces.
 
     On failure we automatically isolate: compute outputs one at a time so a
     single broken output doesn't kill the whole batch. The good ones return
@@ -460,7 +460,7 @@ def _execute_real_batch(
     period: str,
 ) -> dict[str, Any]:
     """Single batch run against the engine — no fallback. Raises on failure."""
-    binary = os.environ["AXIOM_RULES_BIN"]
+    binary = os.environ["AXIOM_RULES_ENGINE_BIN"]
     template = first_test_case(test) if (test := find_test_template(program_yaml)) else None
 
     flat = merge_with_template(template, user_inputs, relations)
@@ -550,7 +550,7 @@ def _rule_metadata_for(
 
 
 def _infer_repo(program_yaml: Path) -> str:
-    """Walk up from the program YAML until a `rules-*` directory is hit."""
+    """Walk up from the program YAML until a `rulespec-*` directory is hit."""
     current = program_yaml.resolve()
     for parent in current.parents:
         if parent.name.startswith("rules-"):
@@ -679,7 +679,7 @@ def _run_with_missing_input_retries(
                 ]
                 upgraded = sorted(f"{n}@{e}" for n, e in upgraded_to_numeric)
                 raise RuntimeError(
-                    "axiom-rules type mismatch persists after upgrading every "
+                    "axiom-rules-engine type mismatch persists after upgrading every "
                     f"non-numeric input to integer. The offending value is "
                     f"likely a derived rule output or a parameter, not an input.\n"
                     f"Stderr: {stderr.strip()}\n"
@@ -716,7 +716,7 @@ def _run_with_missing_input_retries(
             candidates = pending_candidates[bare_name]
             if not candidates:
                 raise RuntimeError(
-                    f"axiom-rules: cannot resolve legal ID for bare input `{bare_name}`. "
+                    f"axiom-rules-engine: cannot resolve legal ID for bare input `{bare_name}`. "
                     f"No rule in the program graph references it. Stderr: {stderr.strip()}"
                 )
             chosen = candidates.pop(0)
@@ -739,7 +739,7 @@ def _run_with_missing_input_retries(
             rejection_key = (legal_id, entity_class)
             if rejection_key in rejected_legal_ids:
                 raise RuntimeError(
-                    f"axiom-rules: defaulting input `{legal_id}` doesn't satisfy the engine. "
+                    f"axiom-rules-engine: defaulting input `{legal_id}` doesn't satisfy the engine. "
                     f"Last stderr: {stderr.strip()}"
                 )
             rejected_legal_ids.add(rejection_key)
@@ -780,10 +780,10 @@ def _run_with_missing_input_retries(
                 })
             continue
 
-        raise RuntimeError(f"axiom-rules failed: {stderr.strip()}")
+        raise RuntimeError(f"axiom-rules-engine failed: {stderr.strip()}")
 
     raise RuntimeError(
-        f"axiom-rules: too many missing inputs ({max_retries}+), giving up."
+        f"axiom-rules-engine: too many missing inputs ({max_retries}+), giving up."
     )
 
 
@@ -803,7 +803,7 @@ def _ensure_compiled(binary: str, program_yaml: Path) -> Path:
         check=False,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"axiom-rules compile failed: {proc.stderr.strip()}")
+        raise RuntimeError(f"axiom-rules-engine compile failed: {proc.stderr.strip()}")
     _compile_cache[program_yaml] = artifact
     return artifact
 
@@ -849,6 +849,6 @@ def execute_demo(
         "coverage": coverage,
         "warnings": [
             "demo mode: returning expected outputs from .test.yaml. "
-            "Set AXIOM_RULES_BIN and install the axiom_rules Python package for live computation."
+            "Set AXIOM_RULES_ENGINE_BIN and install the axiom_rules_engine Python package for live computation."
         ],
     }

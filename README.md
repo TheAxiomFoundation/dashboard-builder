@@ -5,8 +5,8 @@ from selected inputs and outputs.
 
 ## What this is
 
-Pick any [Axiom RuleSpec](https://github.com/TheAxiomFoundation/axiom-rules)
-program in any `rules-*` repo (e.g. Colorado SNAP), choose which inputs the
+Pick any [Axiom RuleSpec](https://github.com/TheAxiomFoundation/axiom-rules-engine)
+program in any `rulespec-*` repo (e.g. Colorado SNAP), choose which inputs the
 end-user fills in and which outputs the dashboard shows, and get a working
 calculator with explain traces — without writing dashboard code.
 
@@ -17,7 +17,7 @@ The repo has three pieces:
 | `packages/spec/`     | TypeScript types for `DashboardSpec` — the contract between builder & renderer |
 | `apps/builder/`      | React wizard. Browse rule packs, pick I/O, edit metadata, export a spec        |
 | `apps/renderer/`     | React app. Reads a `DashboardSpec`, renders the form, calls compute, shows results |
-| `compute/`           | FastAPI service. Wraps `axiom-rules` so the renderer never touches Rust        |
+| `compute/`           | FastAPI service. Wraps `axiom-rules-engine` so the renderer never touches Rust        |
 | `examples/`          | Reference `co-snap.dashboard.yaml` — the canonical hand-written spec           |
 
 ## Quickstart (demo mode — works without a Rust toolchain)
@@ -60,12 +60,12 @@ computation, see `compute/README.md`.
 ┌──────────────────┐  POST /compute  ┌──────────────────┐
 │  apps/renderer   │ ──────────────► │  compute/        │
 │  (form + result) │ ◄────────────── │  (FastAPI +      │
-│                  │   outputs+trace │   axiom-rules)   │
+│                  │   outputs+trace │   axiom-rules-engine)   │
 └──────────────────┘                 └─────────┬────────┘
                                                 │ shells out
                                                 ▼
                                        ┌──────────────────┐
-                                       │  axiom-rules     │
+                                       │  axiom-rules-engine     │
                                        │  (Rust engine)   │
                                        └──────────────────┘
 ```
@@ -80,8 +80,8 @@ fixups.
 
 | Env var               | Default                | Notes                                              |
 | --------------------- | ---------------------- | -------------------------------------------------- |
-| `AXIOM_RULES_ROOT`    | parent of repo         | Where rule packs are cloned                        |
-| `AXIOM_RULES_BIN`     | unset (demo mode)      | Path to compiled `axiom-rules` binary              |
+| `AXIOM_RULESPEC_ROOT`    | parent of repo         | Where rule packs are cloned                        |
+| `AXIOM_RULES_ENGINE_BIN`     | unset (demo mode)      | Path to compiled `axiom-rules-engine` binary              |
 | `VITE_COMPUTE_URL`    | `http://127.0.0.1:8787` | Compute service URL (renderer + builder)          |
 | `VITE_RENDERER_URL`   | `http://127.0.0.1:5174` | Builder uses this for the "Preview" button        |
 
@@ -89,11 +89,11 @@ fixups.
 
 The architecture is designed for foresight, not just the demo:
 
-- **WASM compute** — once `axiom-rules` adds a `wasm32` target, the renderer
+- **WASM compute** — once `axiom-rules-engine` adds a `wasm32` target, the renderer
   can call the engine in-browser. The compute contract stays the same so
   nothing else changes.
 - **Spec-as-code** — dashboards are versionable YAML. Specs can live alongside
-  rule packs in the `rules-*` repos and ship as part of jurisdiction releases.
+  rule packs in the `rulespec-*` repos and ship as part of jurisdiction releases.
 - **Conditional visibility & branching** — the spec already encodes
   `visibleWhen` over scalar inputs; the wizard UI for editing it is the next
   layer.
