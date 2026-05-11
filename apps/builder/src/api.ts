@@ -107,3 +107,42 @@ export async function fetchTransitive(
   return await res.json();
 }
 
+export interface SensitivityResult {
+  baseline: Array<{ legalId: string; value: unknown; dtype?: string }>;
+  /** output_legal_id → list of input_legal_ids that move that output. */
+  load_bearing: Record<string, string[]>;
+  no_effect: string[];
+  skipped: string[];
+  mode: string;
+}
+
+/** Run sensitivity analysis: which inputs in the dependency closure of
+ * the picked outputs actually move those outputs when perturbed?
+ *
+ * Takes 2-6 seconds for a CO-SNAP-sized program; intended to run in
+ * the background after the user picks main results in Step II so the
+ * answer is ready by Step III. Idempotent — call signature is the
+ * cache key. */
+export async function fetchSensitivity(
+  program: { repo: string; path: string },
+  outputs: string[],
+  baseline: {
+    inputs?: Record<string, string | number | boolean>;
+    relations?: Record<string, Array<Record<string, string | number | boolean>>>;
+  } = {},
+): Promise<SensitivityResult> {
+  const res = await fetch(`${COMPUTE_URL}/sensitivity`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      program,
+      period: { start: "2026-01-01", end: "2026-02-01" },
+      queried_outputs: outputs,
+      inputs: baseline.inputs ?? {},
+      relations: baseline.relations,
+    }),
+  });
+  if (!res.ok) throw new Error(`failed to fetch sensitivity: ${res.status}`);
+  return await res.json();
+}
+

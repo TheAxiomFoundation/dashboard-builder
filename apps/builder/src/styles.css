@@ -1346,6 +1346,429 @@ body, html, #root {
   color: var(--color-ink);
 }
 
+/* ═══════════════════════════════════════════
+   Step III — Defaults review (first screen)
+   ═══════════════════════════════════════════ */
+
+.input-defaults-step {
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.input-defaults-prompt {
+  margin: 0;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-ink-secondary);
+}
+
+.input-defaults-panel {
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  background: var(--color-paper-elevated);
+  overflow: hidden;
+}
+
+.input-defaults-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--color-rule-subtle);
+}
+
+.input-defaults-count {
+  font-family: var(--f-display);
+  font-size: 32px;
+  line-height: 1;
+  color: var(--color-accent);
+}
+
+.input-defaults-label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+.input-defaults-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.input-defaults-group {
+  padding: 16px 18px;
+}
+
+.input-defaults-group + .input-defaults-group {
+  border-top: 1px solid var(--color-rule-subtle);
+}
+
+.input-defaults-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.input-defaults-group-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.input-defaults-group-meta {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+}
+
+.input-defaults-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.input-defaults-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-rule);
+  border-radius: 999px;
+  background: var(--color-paper);
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--color-ink-secondary);
+}
+
+.input-defaults-empty {
+  padding: 36px 20px;
+  text-align: center;
+  border: 1px dashed var(--color-rule);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--color-ink-secondary);
+}
+
+.input-defaults-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ═══════════════════════════════════════════
+   Step III — Guided Q&A
+   ═══════════════════════════════════════════ */
+
+.qa-step {
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Stage progress — small numbered dots showing where the user is in
+   the 4-screen Q&A. Mirrors the wizard's top-bar pill row but tighter. */
+.qa-stage-progress {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.qa-stage-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-ink-muted);
+  padding: 4px 12px;
+  position: relative;
+}
+.qa-stage-dot + .qa-stage-dot::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  width: 16px;
+  height: 1px;
+  background: var(--color-rule);
+}
+.qa-stage-dot-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--color-rule);
+  background: var(--color-paper);
+  color: var(--color-ink-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+.qa-stage-dot.is-done .qa-stage-dot-num {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-paper);
+}
+.qa-stage-dot.is-active {
+  color: var(--color-ink);
+}
+.qa-stage-dot.is-active .qa-stage-dot-num {
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-paper);
+}
+
+/* Field stack — the Q&A's main vertical rhythm. */
+.qa-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Member-count stepper — renders at the top of the Household stage
+   when the user has a relation exposed. */
+.qa-member-count-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.qa-stepper-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--color-rule);
+  background: var(--color-paper);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-ink);
+  cursor: pointer;
+  transition: border-color 120ms var(--ease-out), background 120ms var(--ease-out);
+}
+.qa-stepper-btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.qa-stepper-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.qa-stepper-value {
+  font-family: var(--f-display);
+  font-size: 22px;
+  font-weight: 500;
+  min-width: 30px;
+  text-align: center;
+  color: var(--color-ink);
+}
+
+/* Member cards — one per household member during the Household stage.
+   Each card stacks the per-member fields (age, citizenship, etc.). */
+.qa-member-card {
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  padding: 14px 18px 16px;
+  background: var(--color-paper);
+}
+.qa-member-card-head {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-rule-subtle);
+}
+.qa-member-card-eyebrow {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+.qa-member-card-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Live answer strip — pinned at the bottom of each Q&A screen. The
+   computed outputs read as "Right now your calculator would say:
+   Eligible · $785/mo" so the user feels the wizard build something
+   concrete in real time. */
+.qa-live-answer {
+  position: sticky;
+  bottom: 0;
+  margin-top: 12px;
+  padding: 14px 18px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(28, 25, 23, 0.12);
+}
+.qa-live-answer-eyebrow {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin-bottom: 8px;
+}
+.qa-live-answer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+.qa-live-answer-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.qa-live-answer-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: capitalize;
+}
+.qa-live-answer-value {
+  font-family: var(--f-display);
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--color-paper);
+}
+
+/* Empty state — when the picked outputs don't expose any inputs in
+   this stage's bucket. Reads as "nothing to ask about Income" rather
+   than a blank screen. */
+.qa-empty {
+  text-align: center;
+  padding: 36px 20px;
+  font-size: 14px;
+  color: var(--color-ink-secondary);
+  border: 1px dashed var(--color-rule);
+  border-radius: 6px;
+}
+.qa-empty-action {
+  margin-top: 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  border: 0;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.qa-empty-action:hover {
+  text-decoration: underline;
+}
+
+/* Footer link — unobtrusive escape hatch to the legacy picker
+   for users who want to add/remove inputs or relabel things. */
+.qa-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}
+.qa-advanced-link {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  border: 0;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+  transition: color 120ms var(--ease-out);
+}
+.qa-advanced-link:hover {
+  color: var(--color-accent);
+}
+
+/* Recommended-setup banner — top of Step III. Lighter chrome than a
+   full alert; just a hairline-bordered row with a small dot so it
+   reads as informational, not an action the user has to take. */
+.setup-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  margin-bottom: 14px;
+  background: var(--color-accent-light, rgba(180, 83, 9, 0.08));
+  border: 1px solid var(--color-rule-subtle);
+  border-left: 2px solid var(--color-accent);
+  border-radius: 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--color-ink);
+}
+.setup-notice-prompt {
+  background: var(--color-paper-elevated);
+  border-left-color: var(--color-rule);
+}
+.setup-notice-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex-shrink: 0;
+}
+.setup-notice-text {
+  flex: 1;
+  min-width: 0;
+}
+.setup-notice-action {
+  flex-shrink: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border: 1px solid var(--color-rule);
+  border-radius: 3px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  cursor: pointer;
+  transition: background 120ms var(--ease-out),
+              border-color 120ms var(--ease-out);
+}
+.setup-notice-action:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.setup-notice-action.is-primary {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  border-color: var(--color-ink);
+}
+.setup-notice-action.is-primary:hover {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-paper);
+}
+
 /* Picker steps (II / III): cap the body to a focused reading width so
    each row reads as a deliberate choice rather than a wide bar of
    whitespace on a 2000px monitor. */
@@ -1626,6 +2049,68 @@ body, html, #root {
   background: var(--color-rule-subtle);
   color: var(--color-ink-muted);
   vertical-align: middle;
+}
+
+/* Sensitivity badges: "moves Eligibility" or "no effect" — surfaced
+   on rule rows after the background analysis completes. The
+   load-bearing tag uses an accent fill so the user's eye lands on
+   the rows that actually change the answer. */
+.load-bearing-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  background: var(--color-accent-light, rgba(180, 83, 9, 0.12));
+  color: var(--color-accent);
+  vertical-align: middle;
+}
+
+.no-effect-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  color: var(--color-ink-muted);
+  border: 1px dashed var(--color-rule);
+  background: transparent;
+  vertical-align: middle;
+}
+
+/* Subtle accent left-bar on rows that move the picked outputs even
+   when not yet selected — pulls the user's eye to what matters. */
+.rule-toggle.is-load-bearing:not(.is-selected) {
+  border-left-color: var(--color-accent-line, rgba(180, 83, 9, 0.4));
+}
+
+/* Dim rows the engine will silently default — they're tested-and-
+   irrelevant; the user can still pick them but visually they recede. */
+.rule-toggle.is-no-effect:not(.is-selected) .rule-toggle-label {
+  color: var(--color-ink-muted);
+}
+
+/* Spinning dot used while sensitivity analysis is running. */
+.setup-notice-dot.is-spin {
+  background: transparent;
+  border: 1.5px solid var(--color-accent-line, rgba(180, 83, 9, 0.4));
+  border-top-color: var(--color-accent);
+  width: 10px;
+  height: 10px;
+  animation: setup-notice-spin 800ms linear infinite;
+}
+@keyframes setup-notice-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Circle badge with "+" (add) or "✓" (added). Reads as a button without
@@ -2387,6 +2872,30 @@ body, html, #root {
   color: var(--color-ink-muted);
 }
 .output-headline-card.is-selected .output-headline-card-state {
+  color: var(--color-accent);
+}
+
+/* Custom card — visually distinct from the curated picks (which are
+   multi-select) since this card is an action: it advances the wizard
+   to the full picker instead of toggling an output. Lighter
+   background, dashed border, accent arrow on hover. */
+.output-headline-card.output-headline-card-custom {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--color-rule);
+}
+.output-headline-card.output-headline-card-custom:hover {
+  border-style: solid;
+  border-color: var(--color-accent);
+  background: var(--color-accent-light, rgba(180, 83, 9, 0.06));
+}
+.output-headline-card.output-headline-card-custom .output-headline-card-title {
+  color: var(--color-ink-secondary);
+}
+.output-headline-card.output-headline-card-custom:hover .output-headline-card-title {
+  color: var(--color-accent);
+}
+.output-headline-card.output-headline-card-custom .output-headline-card-state {
   color: var(--color-accent);
 }
 

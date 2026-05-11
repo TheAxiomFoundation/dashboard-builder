@@ -44,6 +44,24 @@ export interface CuratedProgram {
    * "Snap X" / "Snap Y" / "Snap Z" stacked down the picker just adds
    * visual noise — the user already knows they're in SNAP. */
   labelPrefix?: string;
+  /** Recommended "starter pack" of inputs to auto-expose when the user
+   * picks their first main result. Gives a brand-new user a working
+   * calculator out of the box instead of an inert one that always
+   * returns fixture values. Person-scope inputs auto-route into the
+   * declared relation. */
+  recommendedInputs?: RecommendedInput[];
+  /** Default member count to apply to any auto-exposed relation. */
+  recommendedMemberCount?: number;
+}
+
+export interface RecommendedInput {
+  legalId: string;
+  /** Optional display label override (otherwise auto-humanized). */
+  label?: string;
+  /** Optional sample default value. The dashboard form will pre-fill
+   * with this so the calculator returns a meaningful answer on first
+   * load. Falls back to the spec's auto-default if absent. */
+  default?: string | number | boolean;
 }
 
 const CURATED_PROGRAMS: CuratedProgram[] = [
@@ -52,6 +70,51 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
     path: "policies/cdhs/snap/fy-2026-benefit-calculation.yaml",
     label: "Colorado SNAP",
     labelPrefix: "snap",
+    recommendedMemberCount: 3,
+    recommendedInputs: [
+      // Household-level questions — the basic shape of "who you are".
+      {
+        legalId:
+          "us-co:regulations/10-ccr-2506-1/4.207.3#input.household_size",
+        label: "Household size",
+        default: 3,
+      },
+      {
+        legalId:
+          "us-co:regulations/10-ccr-2506-1/4.403#input.current_household_income",
+        label: "Monthly household income",
+        default: 1500,
+      },
+      {
+        legalId:
+          "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred",
+        label: "Monthly rent or mortgage",
+        default: 800,
+      },
+      {
+        legalId:
+          "us-co:regulations/10-ccr-2506-1/4.407.31#input.household_pays_electricity_utility_cost",
+        label: "Pays an electricity bill",
+        default: true,
+      },
+      // Per-member questions auto-route into the household relation.
+      {
+        legalId: "us:regulations/7-cfr/273/24#input.member_age",
+        label: "Age",
+        default: 30,
+      },
+      {
+        legalId: "us:regulations/7-cfr/273/4#input.member_is_us_citizen",
+        label: "U.S. citizen",
+        default: true,
+      },
+      {
+        legalId:
+          "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled",
+        label: "Elderly or has a disability",
+        default: false,
+      },
+    ],
     mainOutputs: [
       {
         legalId:

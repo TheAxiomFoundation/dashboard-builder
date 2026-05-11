@@ -67,6 +67,12 @@ export interface Draft {
   relations: RelationExposure[];
   /** Default period; user can edit. */
   periodStart: string;
+  /** True once the user has accepted the curated program's
+   * recommended starter inputs. We auto-apply once on the first
+   * main-result pick (provided the user hasn't manually started
+   * picking inputs); the flag prevents re-applying and tells Step
+   * III to render the "started with the recommended setup" notice. */
+  usedRecommendedSetup?: boolean;
 }
 
 export function emptyDraft(): Draft {
@@ -258,6 +264,111 @@ export function exposeRelation(node: RelationGraphNode): RelationExposure {
     minCount: 1,
     maxCount: 12,
     memberInputs: [],
+  };
+}
+
+/** Apply a curated program's recommendedInputs to a draft in one shot.
+ * Person-scope inputs auto-route into their relation (auto-creating
+ * the relation if needed). Household-scope inputs go into draft.inputs.
+ * No-op for inputs that don't exist in the graph (the curated list
+ * may name a legal ID that's been renamed). */
+export function applyRecommendedSetup(
+  draft: Draft,
+  graph: ProgramGraph,
+  recommended: Array<{
+    legalId: string;
+    label?: string;
+    default?: string | number | boolean;
+  }>,
+  memberCount = 3,
+): Draft {
+  let nextInputs: InputExposure[] = [...draft.inputs];
+  let nextRelations: RelationExposure[] = [...draft.relations];
+  const inputById = new Map(graph.inputs.map((i) => [i.legalId, i] as const));
+  const relationById = new Map(
+    graph.relations.map((r) => [r.legalId, r] as const),
+  );
+
+  for (const rec of recommended) {
+    const node = inputById.get(rec.legalId);
+    if (!node) continue;
+    const dtype = dtypeFor(node);
+    // Default-value precedence:
+    //   1. Explicit override on the recommended record (curated config).
+    //   2. The test-fixture sample value, if the program ships one — gives
+    //      the form a realistic pre-populated value so the calculator
+    //      returns a meaningful answer out of the box.
+    //   3. Neutral zero from defaultFor (what the deployed dashboard
+    //      would show if nothing else were known).
+    let starting: string | number | boolean;
+    if (rec.default !== undefined) {
+      starting = rec.default;
+    } else if (
+      node.sample !== null &&
+      node.sample !== undefined &&
+      typeof node.sample !== "object"
+    ) {
+      starting = node.sample as string | number | boolean;
+    } else {
+      starting = defaultFor(node, dtype);
+    }
+    const exposure: InputExposure = {
+      legalId: node.legalId,
+      label: rec.label ?? humanize(node.name),
+      dtype,
+      default: starting,
+      widget: widgetFor(dtype, node.legalId),
+    };
+
+    if (node.entity === "Person" && node.relationLegalId) {
+      const relId = node.relationLegalId;
+      exposure.relationLegalId = relId;
+      const existing = nextRelations.find((r) => r.legalId === relId);
+      if (existing) {
+        if (!existing.memberInputs.some((m) => m.legalId === node.legalId)) {
+          nextRelations = nextRelations.map((r) =>
+            r.legalId === relId
+              ? { ...r, memberInputs: [...r.memberInputs, exposure] }
+              : r,
+          );
+        }
+      } else {
+        const relNode = relationById.get(relId);
+        if (relNode) {
+          nextRelations = [
+            ...nextRelations,
+            {
+              ...exposeRelation(relNode),
+              minCount: memberCount,
+              memberInputs: [exposure],
+            },
+          ];
+        }
+      }
+    } else {
+      if (!nextInputs.some((i) => i.legalId === node.legalId)) {
+        nextInputs = [...nextInputs, exposure];
+      }
+    }
+  }
+
+  return {
+    ...draft,
+    inputs: nextInputs,
+    relations: nextRelations,
+    usedRecommendedSetup: true,
+  };
+}
+
+/** Reverse of applyRecommendedSetup: clear all exposed inputs/relations
+ * back to the empty state. The `usedRecommendedSetup` flag is reset
+ * too, so future first-pick picks will re-apply if the user wants. */
+export function clearRecommendedSetup(draft: Draft): Draft {
+  return {
+    ...draft,
+    inputs: [],
+    relations: [],
+    usedRecommendedSetup: false,
   };
 }
 

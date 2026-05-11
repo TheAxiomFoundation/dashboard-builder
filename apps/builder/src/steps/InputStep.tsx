@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Draft, InputExposure, RelationExposure } from "../draft";
 import {
+  applyRecommendedSetup,
+  clearRecommendedSetup,
   dtypeFor,
   exposeInput,
   exposeRelation,
@@ -9,14 +11,29 @@ import {
   widgetFor,
   defaultFor,
 } from "../draft";
-import type { InputGraphNode, RelationGraphNode } from "../api";
+import type { InputGraphNode, RelationGraphNode, SensitivityResult } from "../api";
 import { fetchTransitive } from "../api";
 import { humanizeCitation } from "../citations";
 import { curatedForDraft } from "./ProgramStep";
+import { GuidedQA } from "./GuidedQA";
 
 interface Props {
   draft: Draft;
   setDraft: (d: Draft) => void;
+  /** Sensitivity-analysis result for the picked outputs — which
+   * inputs actually move them. Drives load-bearing badges and the
+   * auto-suggest banner. */
+  sensitivity?: SensitivityResult | null;
+  sensitivityStatus?: "idle" | "loading" | "ready" | "error";
+  /** Sub-stage within Step III. Default flow walks
+   * "defaults" → "household" → "income" → "housing" → "resources".
+   * "defaults" asks whether to use the suggested starter questions;
+   * "advanced" reveals the legacy picker for power-user customization. */
+  stage?: "defaults" | "household" | "income" | "housing" | "resources" | "advanced";
+  /** Accept the default questions and start the guided Q&A. */
+  onAcceptDefaults?: () => void;
+  /** Open the legacy picker (advanced view). */
+  onOpenAdvanced?: () => void;
 }
 
 interface DepEntry<T> {
@@ -36,7 +53,61 @@ interface DepEntry<T> {
  * Per-row visual reduced to: checkbox · dtype glyph · name · edit. Depth and
  * legal ID surface only in the inline edit panel.
  */
-export function InputStep({ draft, setDraft }: Props) {
+export function InputStep({
+  draft,
+  setDraft,
+  sensitivity,
+  sensitivityStatus,
+  stage = "advanced",
+  onAcceptDefaults,
+  onOpenAdvanced,
+}: Props) {
+  // Thin dispatcher: each branch is its own component so React's
+  // hook-order rules hold (the advanced picker owns a dozen useState/
+  // useMemo/useEffect calls that would otherwise be conditional). The
+  // sub-components are defined below in the same file.
+  if (stage === "defaults") {
+    return (
+      <DefaultInputsReview
+        draft={draft}
+        onAccept={() => onAcceptDefaults?.()}
+        onCustomize={() => onOpenAdvanced?.()}
+      />
+    );
+  }
+  if (stage !== "advanced") {
+    return (
+      <GuidedQA
+        draft={draft}
+        setDraft={setDraft}
+        stage={stage}
+        onOpenAdvanced={() => onOpenAdvanced?.()}
+      />
+    );
+  }
+  return (
+    <AdvancedInputPicker
+      draft={draft}
+      setDraft={setDraft}
+      sensitivity={sensitivity}
+      sensitivityStatus={sensitivityStatus}
+    />
+  );
+}
+
+interface AdvancedProps {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+  sensitivity?: SensitivityResult | null;
+  sensitivityStatus?: "idle" | "loading" | "ready" | "error";
+}
+
+function AdvancedInputPicker({
+  draft,
+  setDraft,
+  sensitivity,
+  sensitivityStatus,
+}: AdvancedProps) {
   const [inputDeps, setInputDeps] = useState<Record<string, number>>({});
   const [relationDeps, setRelationDeps] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
@@ -148,6 +219,42 @@ export function InputStep({ draft, setDraft }: Props) {
   // Eligibility / Household / etc. — same taxonomy as OutputStep so
   // the picker stays cognitively consistent across steps.
   const labelPrefix = curatedForDraft(draft.program)?.labelPrefix;
+
+  // Map each input to the picked outputs it actually moves (per
+  // sensitivity analysis). Used to render "moves Eligibility" badges
+  // on rule rows and to drive the load-bearing auto-suggest.
+  const loadBearingMap = useMemo(() => {
+    const m = new Map<string, string[]>();
+    if (!sensitivity) return m;
+    for (const [outputId, ids] of Object.entries(sensitivity.load_bearing)) {
+      for (const id of ids) {
+        if (!m.has(id)) m.set(id, []);
+        m.get(id)!.push(outputId);
+      }
+    }
+    return m;
+  }, [sensitivity]);
+  const noEffectSet = useMemo(
+    () => new Set(sensitivity?.no_effect ?? []),
+    [sensitivity],
+  );
+  // Short labels for the picked outputs so the badge can read
+  // "moves Eligibility" instead of a 60-character legal ID.
+  const outputLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const o of draft.outputs) m.set(o.legalId, o.label);
+    return m;
+  }, [draft.outputs]);
+
+  function lbFor(legalId: string): string[] | null {
+    if (!sensitivity) return null;
+    const outIds = loadBearingMap.get(legalId);
+    if (!outIds) return [];
+    return outIds.map((id) => outputLabelById.get(id) ?? id.split("#").pop() ?? id);
+  }
+  function ne(legalId: string): boolean {
+    return !!sensitivity && noEffectSet.has(legalId);
+  }
   interface InputCategory {
     key: string;
     label: string;
@@ -373,6 +480,13 @@ export function InputStep({ draft, setDraft }: Props) {
         </section>
       )}
 
+      <RecommendedSetupNotice
+        draft={draft}
+        setDraft={setDraft}
+        sensitivity={sensitivity}
+        sensitivityStatus={sensitivityStatus}
+      />
+
       {/* Hide the search bar entirely once every reachable input is
           exposed — nothing left to find. */}
       {availableInputCatalog.length + availableRelationCatalog.length > 0 && (
@@ -398,6 +512,8 @@ export function InputStep({ draft, setDraft }: Props) {
               exposed={exposedRelationIds.has(node.legalId)}
               exposure={draft.relations.find((r) => r.legalId === node.legalId)}
               labelPrefix={labelPrefix}
+              loadBearingFor={lbFor(node.legalId)}
+              noEffect={ne(node.legalId)}
               onToggle={() => toggleRelation(node)}
             />
           ))}
@@ -413,6 +529,8 @@ export function InputStep({ draft, setDraft }: Props) {
               }
               exposure={draft.inputs.find((i) => i.legalId === node.legalId)}
               labelPrefix={labelPrefix}
+              loadBearingFor={lbFor(node.legalId)}
+              noEffect={ne(node.legalId)}
               onToggle={() => toggleInput(node)}
               onPatch={(p) => patchInput(node.legalId, p)}
               isEditing={editingId === node.legalId}
@@ -449,6 +567,8 @@ export function InputStep({ draft, setDraft }: Props) {
                       (r) => r.legalId === node.legalId,
                     )}
                     labelPrefix={labelPrefix}
+                    loadBearingFor={lbFor(node.legalId)}
+                    noEffect={ne(node.legalId)}
                     onToggle={() => toggleRelation(node)}
                   />
                 ))}
@@ -466,6 +586,8 @@ export function InputStep({ draft, setDraft }: Props) {
                       (i) => i.legalId === node.legalId,
                     )}
                     labelPrefix={labelPrefix}
+                    loadBearingFor={lbFor(node.legalId)}
+                    noEffect={ne(node.legalId)}
                     onToggle={() => toggleInput(node)}
                     onPatch={(p) => patchInput(node.legalId, p)}
                     isEditing={editingId === node.legalId}
@@ -517,6 +639,8 @@ export function InputStep({ draft, setDraft }: Props) {
                           (i) => i.legalId === node.legalId,
                         )}
                         labelPrefix={labelPrefix}
+                        loadBearingFor={lbFor(node.legalId)}
+                        noEffect={ne(node.legalId)}
                         onToggle={() => toggleInput(node)}
                         onPatch={(p) => patchInput(node.legalId, p)}
                         isEditing={editingId === node.legalId}
@@ -567,6 +691,8 @@ export function InputStep({ draft, setDraft }: Props) {
                         (r) => r.legalId === node.legalId,
                       )}
                       labelPrefix={labelPrefix}
+                      loadBearingFor={lbFor(node.legalId)}
+                      noEffect={ne(node.legalId)}
                       onToggle={() => toggleRelation(node)}
                     />
                   ))}
@@ -580,12 +706,269 @@ export function InputStep({ draft, setDraft }: Props) {
   );
 }
 
+function DefaultInputsReview({
+  draft,
+  onAccept,
+  onCustomize,
+}: {
+  draft: Draft;
+  onAccept: () => void;
+  onCustomize: () => void;
+}) {
+  const scalarCount = draft.inputs.length;
+  const memberInputCount = draft.relations.reduce(
+    (n, rel) => n + rel.memberInputs.length,
+    0,
+  );
+  const total = scalarCount + memberInputCount;
+
+  return (
+    <div className="step-body input-defaults-step">
+      <p className="input-defaults-prompt">
+        These are the questions the calculator will ask by default. Use them
+        as the starting form, or customize the question set first.
+      </p>
+
+      {total === 0 ? (
+        <div className="input-defaults-empty">
+          No default questions are selected for this output set yet.
+        </div>
+      ) : (
+        <div className="input-defaults-panel">
+          <div className="input-defaults-summary">
+            <span className="input-defaults-count">{total}</span>
+            <span className="input-defaults-label">
+              default question{total === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          <div className="input-defaults-list">
+            {draft.relations.map((rel) => (
+              <section key={rel.legalId} className="input-defaults-group">
+                <div className="input-defaults-group-head">
+                  <span className="input-defaults-group-title">{rel.label}</span>
+                  <span className="input-defaults-group-meta">
+                    {rel.minCount} member{rel.minCount === 1 ? "" : "s"} ·{" "}
+                    {rel.memberInputs.length} per-member question
+                    {rel.memberInputs.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {rel.memberInputs.length > 0 && (
+                  <div className="input-defaults-chips">
+                    {rel.memberInputs.map((input) => (
+                      <span key={input.legalId} className="input-defaults-chip">
+                        {input.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ))}
+
+            {draft.inputs.length > 0 && (
+              <section className="input-defaults-group">
+                <div className="input-defaults-group-head">
+                  <span className="input-defaults-group-title">
+                    Household questions
+                  </span>
+                  <span className="input-defaults-group-meta">
+                    {draft.inputs.length} question
+                    {draft.inputs.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="input-defaults-chips">
+                  {draft.inputs.map((input) => (
+                    <span key={input.legalId} className="input-defaults-chip">
+                      {input.label}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="output-headline-cards">
+        <button
+          type="button"
+          className="output-headline-card output-headline-card-decide"
+          onClick={onAccept}
+        >
+          <span className="output-headline-card-title">
+            Use these questions
+          </span>
+          <span className="output-headline-card-source">
+            Walk through a guided Q&A — household, income, housing,
+            resources — answering each as a sample case so the calculator
+            comes pre-filled with realistic defaults.
+          </span>
+          <span className="output-headline-card-state">
+            Start the guided setup →
+          </span>
+        </button>
+        <button
+          type="button"
+          className="output-headline-card output-headline-card-decide"
+          onClick={onCustomize}
+        >
+          <span className="output-headline-card-title">
+            Customize first
+          </span>
+          <span className="output-headline-card-source">
+            Edit which questions appear, rename labels, swap widgets, or
+            add inputs the defaults missed. You can still run the guided
+            setup afterwards.
+          </span>
+          <span className="output-headline-card-state">
+            Open the full picker →
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Top-of-step banner for the curated program's recommended starter
+ * inputs. Two states:
+ *   - applied (`usedRecommendedSetup`): show "Started with the
+ *     recommended setup · Reset to blank" so the user can undo.
+ *   - not applied + nothing exposed yet + curated set exists: show
+ *     "Most CO SNAP calculators ask these N questions · Use them"
+ *     so the user can opt in after the fact.
+ */
+function RecommendedSetupNotice({
+  draft,
+  setDraft,
+  sensitivity,
+  sensitivityStatus,
+}: {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+  sensitivity?: SensitivityResult | null;
+  sensitivityStatus?: "idle" | "loading" | "ready" | "error";
+}) {
+  const curated = curatedForDraft(draft.program);
+  if (!draft.graph) return null;
+
+  const exposedCount =
+    draft.inputs.length +
+    draft.relations.reduce((n, r) => n + r.memberInputs.length, 0);
+
+  // Sensitivity-derived "load-bearing" list — every input that moves
+  // any picked output. Preferred over the hand-curated list because
+  // it's empirically true rather than guessed at.
+  const loadBearingIds = sensitivity
+    ? Array.from(
+        new Set(Object.values(sensitivity.load_bearing).flatMap((ids) => ids)),
+      )
+    : null;
+  const loadBearingRecommended = loadBearingIds
+    ? loadBearingIds.map((legalId) => ({ legalId }))
+    : null;
+
+  // Background analysis still running — note it so the user knows
+  // why they don't see badges yet.
+  if (sensitivityStatus === "loading" && exposedCount === 0 && !draft.usedRecommendedSetup) {
+    return (
+      <div className="setup-notice setup-notice-prompt">
+        <span className="setup-notice-dot is-spin" aria-hidden />
+        <span className="setup-notice-text">
+          Analyzing which questions actually move your picked results…
+        </span>
+      </div>
+    );
+  }
+
+  // After auto-apply (curated): if sensitivity is now ready and tells
+  // a different story, offer to swap to the empirically-correct set.
+  if (draft.usedRecommendedSetup) {
+    const swapAvailable =
+      loadBearingRecommended &&
+      loadBearingRecommended.length > 0 &&
+      sensitivityStatus === "ready";
+    return (
+      <div className="setup-notice">
+        <span className="setup-notice-dot" aria-hidden />
+        <span className="setup-notice-text">
+          {swapAvailable
+            ? `${loadBearingRecommended!.length} of these questions actually move your picked results.`
+            : `Started with the recommended setup. Edit anything below.`}
+        </span>
+        {swapAvailable && (
+          <button
+            type="button"
+            className="setup-notice-action"
+            onClick={() =>
+              setDraft(
+                applyRecommendedSetup(
+                  clearRecommendedSetup(draft),
+                  draft.graph!,
+                  loadBearingRecommended!,
+                  curated?.recommendedMemberCount ?? 3,
+                ),
+              )
+            }
+          >
+            Use only those
+          </button>
+        )}
+        <button
+          type="button"
+          className="setup-notice-action"
+          onClick={() => setDraft(clearRecommendedSetup(draft))}
+        >
+          Reset to blank
+        </button>
+      </div>
+    );
+  }
+
+  // Nothing exposed yet — offer the load-bearing set if sensitivity is
+  // ready, otherwise the hand-curated list.
+  if (exposedCount === 0) {
+    const recommended = loadBearingRecommended ?? curated?.recommendedInputs ?? [];
+    if (!recommended.length) return null;
+    const fromSensitivity = !!loadBearingRecommended;
+    return (
+      <div className="setup-notice setup-notice-prompt">
+        <span className="setup-notice-text">
+          {fromSensitivity
+            ? `${recommended.length} questions actually move your picked results.`
+            : `Most ${curated?.label ?? "calculators"} ask the same ${recommended.length} questions to start.`}
+        </span>
+        <button
+          type="button"
+          className="setup-notice-action is-primary"
+          onClick={() =>
+            setDraft(
+              applyRecommendedSetup(
+                draft,
+                draft.graph!,
+                recommended,
+                curated?.recommendedMemberCount ?? 3,
+              ),
+            )
+          }
+        >
+          Use them
+        </button>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 function InputRow({
   node,
   depth,
   exposed,
   exposure,
   labelPrefix,
+  loadBearingFor,
+  noEffect,
   onToggle,
   onPatch,
   isEditing,
@@ -596,6 +979,11 @@ function InputRow({
   exposed: boolean;
   exposure: InputExposure | undefined;
   labelPrefix: string | undefined;
+  /** Picked-output labels this input is known to move (sensitivity).
+   * Empty means tested-and-no-effect; null means not yet tested. */
+  loadBearingFor?: string[] | null;
+  /** Whether sensitivity tested this input and found it moved nothing. */
+  noEffect?: boolean;
   onToggle: () => void;
   onPatch: (p: Partial<InputExposure>) => void;
   isEditing: boolean;
@@ -604,6 +992,15 @@ function InputRow({
   const isPerson = node.entity === "Person";
   const label =
     exposure?.label ?? humanizeWithoutPrefix(node.name, labelPrefix);
+  const loadBearing = (loadBearingFor?.length ?? 0) > 0;
+  const rowClass = [
+    "rule-toggle",
+    exposed ? "is-selected" : "",
+    loadBearing ? "is-load-bearing" : "",
+    !loadBearing && noEffect ? "is-no-effect" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   // Outer container is non-button so we can nest the Edit button without
   // an invalid <button> inside <button>. role="checkbox" preserves
   // accessibility; keyboard users get Space/Enter to toggle.
@@ -613,7 +1010,7 @@ function InputRow({
         role="checkbox"
         tabIndex={0}
         aria-checked={exposed}
-        className={`rule-toggle ${exposed ? "is-selected" : ""}`}
+        className={rowClass}
         onClick={onToggle}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -630,6 +1027,22 @@ function InputRow({
               title="Per household member — the form will show one field per member"
             >
               per member
+            </span>
+          )}
+          {loadBearing && (
+            <span
+              className="load-bearing-tag"
+              title={`This input changes the calculator's answer for ${loadBearingFor!.join(", ")}.`}
+            >
+              moves {loadBearingFor!.length === 1 ? loadBearingFor![0] : `${loadBearingFor!.length} results`}
+            </span>
+          )}
+          {!loadBearing && noEffect && (
+            <span
+              className="no-effect-tag"
+              title="Tested — changing this input doesn't move any of your picked results given the current defaults."
+            >
+              no effect
             </span>
           )}
         </span>
@@ -687,6 +1100,8 @@ function RelationRow({
   exposed,
   exposure,
   labelPrefix,
+  loadBearingFor,
+  noEffect,
   onToggle,
 }: {
   node: RelationGraphNode;
@@ -694,16 +1109,27 @@ function RelationRow({
   exposed: boolean;
   exposure: RelationExposure | undefined;
   labelPrefix: string | undefined;
+  loadBearingFor?: string[] | null;
+  noEffect?: boolean;
   onToggle: () => void;
 }) {
   const label =
     exposure?.label ?? humanizeWithoutPrefix(node.name, labelPrefix);
+  const loadBearing = (loadBearingFor?.length ?? 0) > 0;
+  const rowClass = [
+    "rule-toggle",
+    exposed ? "is-selected" : "",
+    loadBearing ? "is-load-bearing" : "",
+    !loadBearing && noEffect ? "is-no-effect" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={exposed}
-      className={`rule-toggle ${exposed ? "is-selected" : ""}`}
+      className={rowClass}
       onClick={onToggle}
     >
       <span className="rule-toggle-label" title={label}>
@@ -711,6 +1137,14 @@ function RelationRow({
         <span className="per-member-tag" title="Repeating block — exposing this puts a list-of-members section in the form">
           relation
         </span>
+        {loadBearing && (
+          <span
+            className="load-bearing-tag"
+            title={`This relation moves ${loadBearingFor!.join(", ")}.`}
+          >
+            moves {loadBearingFor!.length === 1 ? loadBearingFor![0] : `${loadBearingFor!.length} results`}
+          </span>
+        )}
       </span>
       <span
         className={`rule-toggle-mark ${exposed ? "is-on" : ""}`}

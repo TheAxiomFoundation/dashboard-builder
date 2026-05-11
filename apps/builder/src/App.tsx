@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
-import { fetchProgramGraph } from "./api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { fetchProgramGraph, fetchSensitivity, type SensitivityResult } from "./api";
 import { emptyDraft, type Draft } from "./draft";
 import { STEPS, StepHeader, StepIndicator, StepNav, type StepId } from "./Wizard";
-import { ProgramStep } from "./steps/ProgramStep";
+import { ProgramStep, curatedForDraft } from "./steps/ProgramStep";
 import { OutputStep } from "./steps/OutputStep";
 import { InputStep } from "./steps/InputStep";
 import { GraphStep } from "./steps/GraphStep";
 import { PublishStep } from "./steps/PublishStep";
 import {
+  applyRecommendedSetup,
   defaultFor,
   dtypeFor,
   exposeInput,
@@ -96,25 +97,66 @@ export function App() {
     if (reachable) setStepId(id);
   }
 
-  // Step II ("outputs") is split into two sub-stages: cards-first
-  // ("main") for the curated 1-3 top-level results, then a separate
-  // ("intermediates") screen for the document picker if the user
-  // wants to surface anything else. Continue/Back walk through both
-  // before moving on to Step III.
-  const [outputStage, setOutputStage] = useState<"main" | "intermediates">(
-    "main",
-  );
+  // Step II ("outputs") is split into THREE sub-stages:
+  //   "main"         — cards-first picker for the curated top-level
+  //                    results (Eligibility, Benefit amount, Custom).
+  //   "decide"       — yes/no interstitial: do you want to surface
+  //                    intermediate calculation steps too?
+  //   "intermediates"— the full rule picker, only reached if the user
+  //                    picked "yes" on "decide" or "Custom" on "main".
+  // Picking "no" on "decide" advances straight to Step III.
+  const [outputStage, setOutputStage] = useState<
+    "main" | "decide" | "intermediates"
+  >("main");
   // Reset the sub-stage whenever we leave Step II so re-entering
   // always starts with the cards.
   useEffect(() => {
     if (stepId !== "outputs") setOutputStage("main");
   }, [stepId]);
 
-  // Step II's intermediates sub-stage gets a different lede — by then
-  // the user has already picked their main result(s), so the prompt
-  // shifts to "do you want to surface the intermediate steps too?"
-  // instead of "what should the calculator tell the user?".
+  // Step III ("inputs") starts with a defaults review, then becomes a
+  // guided 4-screen Q&A — Household / Income / Housing / Resources —
+  // so the user explicitly accepts the suggested questions before
+  // answering them. The "advanced" stage is the legacy full picker,
+  // kept accessible behind a "Customize the questions" link for
+  // power-user edits (rename labels, swap widgets, expose more).
+  type InputStage =
+    | "defaults"
+    | "household"
+    | "income"
+    | "housing"
+    | "resources"
+    | "advanced";
+  const INPUT_STAGES: InputStage[] = ["household", "income", "housing", "resources"];
+  const [inputStage, setInputStage] = useState<InputStage>("defaults");
+  // When the user clicks "Customize the questions" we remember which
+  // guided stage they came from so Continue from "advanced" returns
+  // them to the right place instead of jumping to Step IV.
+  const [advancedReturnTo, setAdvancedReturnTo] = useState<InputStage>(
+    "defaults",
+  );
+  useEffect(() => {
+    if (stepId !== "inputs") setInputStage("defaults");
+  }, [stepId]);
+
+  // Per-sub-stage lede + heading overrides. The wizard pane reads
+  // baseStep statically; we layer overrides on top so each sub-stage
+  // (Step II intermediates, Step III household/income/etc.) reads
+  // like its own focused question.
   const step = useMemo(() => {
+    if (baseStep.id === "outputs" && outputStage === "decide") {
+      return {
+        ...baseStep,
+        title: <>Show the <em>calculation steps</em>?</>,
+        lede: (
+          <>
+            End-users can see the intermediate values that go into the
+            final answer — or you can keep the calculator focused on just
+            the main result.
+          </>
+        ),
+      };
+    }
     if (baseStep.id === "outputs" && outputStage === "intermediates") {
       return {
         ...baseStep,
@@ -127,25 +169,188 @@ export function App() {
         ),
       };
     }
+    if (baseStep.id === "inputs") {
+      const stageHeadings: Record<InputStage, { title: React.ReactNode; lede: React.ReactNode }> = {
+        defaults: {
+          title: <>Use the <em>default questions</em>?</>,
+          lede: <>Start with the questions this program normally needs, or customize them before moving into the guided setup.</>,
+        },
+        household: {
+          title: <>Tell us about the <em>household</em></>,
+          lede: <>Who's in the household? We'll use this to figure out who counts and what each person brings to the calculation.</>,
+        },
+        income: {
+          title: <>What does the household <em>earn or receive</em>?</>,
+          lede: <>Wages, benefits, gifts, side income — anything that counts. Skip the kinds the household doesn't have.</>,
+        },
+        housing: {
+          title: <>What does <em>housing</em> cost?</>,
+          lede: <>Rent or mortgage, plus utilities. The bigger these are relative to income, the larger the benefit usually is.</>,
+        },
+        resources: {
+          title: <>Anything <em>else</em>?</>,
+          lede: <>Assets the household owns, special situations, and edge cases. Most households leave this blank.</>,
+        },
+        advanced: {
+          title: baseStep.title,
+          lede: <>Pick which questions appear in the deployed calculator. Anything you skip falls back to a sensible default.</>,
+        },
+      };
+      const override = stageHeadings[inputStage];
+      return { ...baseStep, ...override };
+    }
     return baseStep;
-  }, [baseStep, outputStage]);
+  }, [baseStep, outputStage, inputStage]);
 
   function next() {
     if (stepId === "outputs" && outputStage === "main") {
-      setOutputStage("intermediates");
+      // After picking the curated main(s) the user gets a yes/no on
+      // whether to dive into intermediate calculation steps.
+      setOutputStage("decide");
       return;
+    }
+    if (stepId === "outputs" && outputStage === "decide") {
+      // Default Continue = "no, just the main result" → straight to
+      // Step III. The yes-card on the decide screen calls a different
+      // handler that drops the user into intermediates.
+      setStepId("inputs");
+      return;
+    }
+    if (stepId === "inputs" && inputStage === "advanced") {
+      // Coming back from the advanced picker — return to the guided
+      // stage the user was on when they opened it.
+      setInputStage(advancedReturnTo);
+      return;
+    }
+    if (stepId === "inputs" && inputStage === "defaults") {
+      setInputStage("household");
+      return;
+    }
+    if (stepId === "inputs") {
+      const i = INPUT_STAGES.indexOf(inputStage as Exclude<InputStage, "advanced">);
+      if (i >= 0 && i < INPUT_STAGES.length - 1) {
+        setInputStage(INPUT_STAGES[i + 1]!);
+        return;
+      }
     }
     const idx = step.index;
     if (idx < STEPS.length) setStepId(STEPS[idx]!.id);
   }
   function back() {
     if (stepId === "outputs" && outputStage === "intermediates") {
+      // If the user has any curated main picked, "decide" made sense
+      // going forward — show it going back too. If they took the
+      // Custom path (no curated main), skip decide on the way back
+      // to mirror the forward flow (Custom card bypasses decide).
+      const curated = curatedForDraft(draft.program);
+      const curatedIds = new Set(
+        curated?.mainOutputs?.map((m) => m.legalId) ?? [],
+      );
+      const hasCuratedMain = draft.outputs.some((o) =>
+        curatedIds.has(o.legalId),
+      );
+      setOutputStage(hasCuratedMain ? "decide" : "main");
+      return;
+    }
+    if (stepId === "outputs" && outputStage === "decide") {
       setOutputStage("main");
       return;
+    }
+    if (stepId === "inputs" && inputStage === "advanced") {
+      setInputStage(advancedReturnTo);
+      return;
+    }
+    if (stepId === "inputs" && inputStage === "defaults") {
+      const idx = step.index;
+      if (idx > 1) setStepId(STEPS[idx - 2]!.id);
+      return;
+    }
+    if (stepId === "inputs") {
+      const i = INPUT_STAGES.indexOf(inputStage as Exclude<InputStage, "advanced">);
+      if (i > 0) {
+        setInputStage(INPUT_STAGES[i - 1]!);
+        return;
+      }
+      if (i === 0) {
+        setInputStage("defaults");
+        return;
+      }
     }
     const idx = step.index;
     if (idx > 1) setStepId(STEPS[idx - 2]!.id);
   }
+
+  // ── Sensitivity analysis ────────────────────────────────────────────
+  // Once the user has picked main outputs we kick off /sensitivity in
+  // the background — figures out which inputs in the dependency closure
+  // actually move those outputs vs. which the engine will silently
+  // default to "no effect on the answer." Step III renders badges +
+  // auto-exposes the load-bearing set when the result lands.
+  //
+  // Cached per output set so flipping back to Step II and adding more
+  // doesn't redundantly recompute. Re-fetches when the picked output
+  // legal IDs change.
+  const [sensitivity, setSensitivity] = useState<SensitivityResult | null>(null);
+  const [sensitivityStatus, setSensitivityStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const sensitivityCacheKey = useMemo(() => {
+    if (!draft.program) return null;
+    if (draft.outputs.length === 0) return null;
+    const outs = [...draft.outputs.map((o) => o.legalId)].sort().join("|");
+    return `${draft.program.repo}::${draft.program.path}::${outs}`;
+  }, [draft.program, draft.outputs]);
+  const lastFetchedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!draft.program || !sensitivityCacheKey) {
+      setSensitivity(null);
+      setSensitivityStatus("idle");
+      return;
+    }
+    if (sensitivityCacheKey === lastFetchedKey.current) return;
+    lastFetchedKey.current = sensitivityCacheKey;
+    setSensitivityStatus("loading");
+    let cancelled = false;
+    fetchSensitivity(
+      { repo: draft.program.repo, path: draft.program.path },
+      draft.outputs.map((o) => o.legalId),
+    )
+      .then((res) => {
+        if (cancelled) return;
+        setSensitivity(res);
+        setSensitivityStatus("ready");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSensitivityStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sensitivityCacheKey, draft.program, draft.outputs]);
+
+  // Belt-and-suspenders auto-apply: if the user lands on Step III with
+  // a picked output but no inputs/relations exposed (e.g. they have a
+  // persisted draft from before the auto-apply existed, or their pick
+  // happened via a flow that bypassed OutputStep.toggle), seed the
+  // recommended defaults so the "Use the default questions?" screen
+  // actually has questions to show.
+  useEffect(() => {
+    if (stepId !== "inputs") return;
+    if (!draft.graph || !draft.program) return;
+    if (draft.outputs.length === 0) return;
+    if (draft.inputs.length > 0 || draft.relations.length > 0) return;
+    const curated = curatedForDraft(draft.program);
+    if (!curated?.recommendedInputs?.length) return;
+    setDraft(
+      applyRecommendedSetup(
+        draft,
+        draft.graph,
+        curated.recommendedInputs,
+        curated.recommendedMemberCount ?? 3,
+      ),
+    );
+  }, [stepId, draft]);
 
   /**
    * Builder hook for "+ Expose" buttons in the graph and input picker.
@@ -305,9 +510,26 @@ export function App() {
                 draft={draft}
                 setDraft={setDraft}
                 stage={outputStage}
+                onAdvanceToIntermediates={() => setOutputStage("intermediates")}
+                onSkipIntermediates={() => setStepId("inputs")}
               />
             )}
-            {stepId === "inputs" && <InputStep draft={draft} setDraft={setDraft} />}
+            {stepId === "inputs" && (
+              <InputStep
+                draft={draft}
+                setDraft={setDraft}
+                sensitivity={sensitivity}
+                sensitivityStatus={sensitivityStatus}
+                stage={inputStage}
+                onAcceptDefaults={() => setInputStage("household")}
+                onOpenAdvanced={() => {
+                  if (inputStage !== "advanced") {
+                    setAdvancedReturnTo(inputStage);
+                  }
+                  setInputStage("advanced");
+                }}
+              />
+            )}
             {stepId === "review" && (
               <GraphStep
                 draft={draft}

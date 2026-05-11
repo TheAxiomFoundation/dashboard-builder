@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Draft, OutputSelection } from "../draft";
 import {
+  applyRecommendedSetup,
   humanize,
   humanizeWithoutPrefix,
   pruneUnreachable,
@@ -15,12 +16,21 @@ interface Props {
   draft: Draft;
   setDraft: (d: Draft) => void;
   /**
-   * Sub-stage within Step II. "main" shows the cards-first picker for
-   * top-level results (no sidebar). "intermediates" shows the document
-   * picker + selected-pills sidebar for power users who want to surface
-   * derived rules. Wizard nav drives this — see App.tsx.
+   * Sub-stage within Step II.
+   *   - "main"          — curated cards (Eligibility / Benefit amount /
+   *                       Custom).
+   *   - "decide"        — yes/no card: do you want to surface
+   *                       intermediate steps?
+   *   - "intermediates" — full rule picker (reached via "yes" on
+   *                       "decide" or via Custom on "main").
    */
-  stage: "main" | "intermediates";
+  stage: "main" | "decide" | "intermediates";
+  /** "Yes, show me intermediate steps" — advance to the intermediates
+   * picker. Also fires from the Custom card on the main stage. */
+  onAdvanceToIntermediates?: () => void;
+  /** "No, just the main result" — skip past the intermediates picker
+   * straight to Step III. Bypasses canContinue gating. */
+  onSkipIntermediates?: () => void;
 }
 
 /**
@@ -35,7 +45,13 @@ interface Props {
  * Per-row visual is reduced to: checkbox · dtype glyph · name · edit/×.
  * Legal IDs only appear in the inline edit panel (when the user clicks Edit).
  */
-export function OutputStep({ draft, setDraft, stage }: Props) {
+export function OutputStep({
+  draft,
+  setDraft,
+  stage,
+  onAdvanceToIntermediates,
+  onSkipIntermediates,
+}: Props) {
   const [query, setQuery] = useState("");
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
@@ -249,7 +265,33 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
     // we never want the user trapped in a broken state.)
     const issue = validateOutput(rule, draft, graph.rules);
     if (issue) return;
-    setDraft({ ...draft, outputs: [...draft.outputs, selectOutput(rule)] });
+    let next: Draft = {
+      ...draft,
+      outputs: [...draft.outputs, selectOutput(rule)],
+    };
+    // Auto-apply the curated program's recommended starter inputs
+    // whenever the user picks their first main result AND nothing's
+    // exposed yet. We deliberately don't gate on the persisted
+    // `usedRecommendedSetup` flag — that bit gets stuck across
+    // sessions and would prevent re-applying after the user clears
+    // their picks and starts fresh. The empty-inputs check already
+    // guarantees we don't double-apply on top of existing exposures,
+    // and applyRecommendedSetup dedupes per-input regardless.
+    const curated = curatedForDraft(draft.program);
+    if (
+      next.outputs.length === 1 &&
+      next.inputs.length === 0 &&
+      next.relations.length === 0 &&
+      curated?.recommendedInputs?.length
+    ) {
+      next = applyRecommendedSetup(
+        next,
+        graph,
+        curated.recommendedInputs,
+        curated.recommendedMemberCount ?? 3,
+      );
+    }
+    setDraft(next);
   }
 
   function toggleGroupOpen(key: string, defaultOpen: boolean) {
@@ -309,6 +351,23 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
               </button>
             );
           })}
+
+          {onAdvanceToIntermediates && cardItems.length > 0 && (
+            <button
+              type="button"
+              className="output-headline-card output-headline-card-custom"
+              onClick={onAdvanceToIntermediates}
+            >
+              <span className="output-headline-card-title">Custom</span>
+              <span className="output-headline-card-source">
+                Calculator answers a different question — pick any rule as the
+                main result.
+              </span>
+              <span className="output-headline-card-state">
+                Pick from full list →
+              </span>
+            </button>
+          )}
         </div>
         {cardItems.length === 0 && (
           <div className="empty-hint">
@@ -316,6 +375,49 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
             from intermediate rules.
           </div>
         )}
+      </div>
+    );
+  }
+
+  // ---------- stage "decide": yes/no on intermediate steps ----------
+  if (stage === "decide") {
+    return (
+      <div className="step-body output-stage-main">
+        <p className="output-stage-prompt">
+          Do you want the calculator to show how the result is calculated?
+        </p>
+        <div className="output-headline-cards">
+          <button
+            type="button"
+            className="output-headline-card output-headline-card-decide"
+            onClick={() => onAdvanceToIntermediates?.()}
+          >
+            <span className="output-headline-card-title">
+              Show the calculation steps
+            </span>
+            <span className="output-headline-card-source">
+              Surface gross income, deductions, and other intermediate
+              values so users can see how the answer was derived.
+            </span>
+            <span className="output-headline-card-state">
+              Pick which steps →
+            </span>
+          </button>
+          <button
+            type="button"
+            className="output-headline-card output-headline-card-decide"
+            onClick={() => onSkipIntermediates?.()}
+          >
+            <span className="output-headline-card-title">
+              Just the main result
+            </span>
+            <span className="output-headline-card-source">
+              Keep the calculator focused — users see only the answer
+              without the breakdown.
+            </span>
+            <span className="output-headline-card-state">Continue →</span>
+          </button>
+        </div>
       </div>
     );
   }

@@ -731,25 +731,51 @@ def _run_with_missing_input_retries(
             continue
 
         if miss_match:
-            legal_id = miss_match.group(1)
+            reported_id = miss_match.group(1)
             miss_entity_id = miss_match.group(2) or ""
             entity_class = (
                 "person" if miss_entity_id.startswith("person:") else "household"
             )
-            rejection_key = (legal_id, entity_class)
-            if rejection_key in rejected_legal_ids:
+
+            # The engine reports the missing input using its bare name
+            # (no `#input.` file prefix), but won't match bare-named
+            # records back to its file-qualified declarations. Resolve
+            # bare names to candidate full IDs first; treat the full ID
+            # as authoritative for rejection-tracking.
+            if "#" in reported_id:
+                full_candidates = [reported_id]
+            else:
+                if reported_id not in pending_candidates:
+                    try:
+                        pending_candidates[reported_id] = resolve_input_legal_id(
+                            _graph(), reported_id,
+                        )
+                    except Exception:
+                        pending_candidates[reported_id] = []
+                full_candidates = pending_candidates[reported_id]
+
+            # Pick the first candidate we haven't already tried for this
+            # entity scope. If they're all exhausted, bail with a clear
+            # diagnostic.
+            full_id: str | None = None
+            for candidate in full_candidates:
+                if (candidate, entity_class) not in rejected_legal_ids:
+                    full_id = candidate
+                    break
+            if full_id is None:
                 raise RuntimeError(
-                    f"axiom-rules: defaulting input `{legal_id}` doesn't satisfy the engine. "
-                    f"Last stderr: {stderr.strip()}"
+                    f"axiom-rules: exhausted candidates for missing input `{reported_id}` "
+                    f"(scope {entity_class}). Last stderr: {stderr.strip()}"
                 )
-            rejected_legal_ids.add(rejection_key)
-            value = _infer_default_value(legal_id)
+
+            rejected_legal_ids.add((full_id, entity_class))
+            value = _infer_default_value(full_id)
+
             if entity_class == "person":
-                # The engine only complains about one missing person at a
-                # time; fill the default for every person already in the
-                # dataset so we don't burn retries one member at a time.
-                # Pull person IDs from existing input records and from
-                # relation tuples (in case some persons have no inputs yet).
+                # Engine reports one person at a time — fill the default
+                # for every person already in the dataset (from input
+                # records + relation tuples) so we don't burn retries
+                # one member at a time.
                 person_ids: set[str] = set()
                 for rec in request_payload["dataset"]["inputs"]:
                     if rec.get("entity") == "Person":
@@ -762,17 +788,31 @@ def _run_with_missing_input_retries(
                             person_ids.add(tup_id)
                 if not person_ids:
                     person_ids = {miss_entity_id or "person:1"}
+                # Drop any prior bare-named records for this input so
+                # the engine doesn't see two entries (bare + full).
+                if reported_id != full_id:
+                    request_payload["dataset"]["inputs"] = [
+                        rec
+                        for rec in request_payload["dataset"]["inputs"]
+                        if rec["name"] != reported_id
+                    ]
                 for pid in sorted(person_ids):
                     request_payload["dataset"]["inputs"].append({
-                        "name": legal_id,
+                        "name": full_id,
                         "entity": "Person",
                         "entity_id": pid,
                         "interval": {"start": interval_start, "end": interval_end},
                         "value": value,
                     })
             else:
+                if reported_id != full_id:
+                    request_payload["dataset"]["inputs"] = [
+                        rec
+                        for rec in request_payload["dataset"]["inputs"]
+                        if rec["name"] != reported_id
+                    ]
                 request_payload["dataset"]["inputs"].append({
-                    "name": legal_id,
+                    "name": full_id,
                     "entity": "Household",
                     "entity_id": entity_id,
                     "interval": {"start": interval_start, "end": interval_end},

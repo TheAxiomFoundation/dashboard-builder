@@ -235,3 +235,195 @@ def compute(body: ComputeRequestBody) -> ComputeResponseBody:
         warnings=payload.get("warnings", []),
         mode=_mode.name,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Sensitivity analysis — which inputs actually move the picked outputs?
+# ─────────────────────────────────────────────────────────────────────────
+
+class SensitivityRequestBody(BaseModel):
+    program: dict[str, Any] = Field(..., description="ProgramRef from DashboardSpec")
+    period: dict[str, Any] | None = None
+    queried_outputs: list[str]
+    # Optional baseline state — frontend can pass the user's currently-
+    # exposed inputs/relations so we test perturbations on top of that.
+    # If empty, the baseline is "engine defaults" (test fixture + retry
+    # heuristics).
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    relations: dict[str, list[dict[str, Any]]] | None = None
+
+
+class SensitivityResponseBody(BaseModel):
+    baseline: list[dict[str, Any]]
+    # output_legal_id → list of input_legal_ids that move that output.
+    load_bearing: dict[str, list[str]]
+    # Inputs we tested but found no effect on any picked output.
+    no_effect: list[str]
+    # Inputs we couldn't perturb (date / string / unknown shape) or
+    # that crashed the engine on perturbation.
+    skipped: list[str]
+    mode: str
+
+
+_BOOLEAN_STARTS = (
+    "is_", "has_", "was_", "were_", "does_", "do_", "will_", "should_",
+    "can_", "must_",
+)
+_BOOLEAN_ENDINGS = (
+    "_eligible", "_active", "_received", "_paid", "_applies",
+    "_required", "_present", "_member", "_holds", "_passed",
+    "_satisfied", "_met", "_complies", "_complying", "_provided",
+    "_disqualified", "_disqualification", "_pending", "_excluded",
+    "_exempt", "_owned", "_purchased", "_terminated", "_known",
+    "_anticipated", "_assigned", "_referred", "_offered", "_allowed",
+    "_verified", "_confirmed", "_separately",
+)
+
+
+def _looks_boolean(name: str, sample: Any) -> bool:
+    if isinstance(sample, bool):
+        return True
+    n = name.lower()
+    return n.startswith(_BOOLEAN_STARTS) or any(
+        n.endswith(s) for s in _BOOLEAN_ENDINGS
+    )
+
+
+def _pick_perturbation(name: str, sample: Any) -> Any | None:
+    """Pick a value far enough from `sample` (or from the inferred
+    default if sample is None) to cross any threshold the rules might
+    care about. Returns None to skip — dates, strings, and inputs
+    whose shape we can't determine."""
+    if _looks_boolean(name, sample):
+        return False if sample is True else True
+    if isinstance(sample, bool):
+        return not sample
+    if isinstance(sample, (int, float)):
+        # Push the value away from the default by a wide margin so we
+        # cross income limits, age cutoffs, etc. without picking a value
+        # so wild that the engine balks.
+        magnitude = max(5000.0, abs(float(sample)) * 4 + 100)
+        return float(sample) + magnitude
+    if sample is None:
+        # No fixture sample — assume numeric and pick something
+        # non-trivial. Engine retry will infer dtype.
+        return 5000
+    # Date or string — skip.
+    return None
+
+
+@app.post("/sensitivity", response_model=SensitivityResponseBody)
+def sensitivity(body: SensitivityRequestBody) -> SensitivityResponseBody:
+    repo = body.program.get("repo")
+    path = body.program.get("path")
+    if not repo or not path:
+        raise HTTPException(
+            status_code=400,
+            detail="program.repo and program.path are required",
+        )
+    try:
+        program_path = resolve_program(_config, repo, path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    period_obj = body.period or {}
+    period_start = period_obj.get("start", "2026-01-01")
+    period = period_start[:7]
+
+    # Build graph and find the transitive closure of inputs from the
+    # picked outputs — no point perturbing inputs no rule reaches.
+    graph = build_graph(program_path, repo)
+    closure = transitive_dependencies(graph, body.queried_outputs)
+    closure_input_ids = list(closure["inputs"].keys())
+    inputs_by_id = {i.legal_id: i for i in graph.inputs.values()}
+
+    def _outputs_map(payload: dict[str, Any]) -> dict[str, Any]:
+        return {o["legalId"]: o.get("value") for o in payload.get("outputs", [])}
+
+    if _mode.name != "real":
+        # Demo mode short-circuits — every input looks load-bearing
+        # because the demo always returns fixture values regardless.
+        # Be honest: nothing tested.
+        return SensitivityResponseBody(
+            baseline=[],
+            load_bearing={oid: [] for oid in body.queried_outputs},
+            no_effect=[],
+            skipped=closure_input_ids,
+            mode=_mode.name,
+        )
+
+    # ── Baseline ────────────────────────────────────────────────────
+    try:
+        baseline_payload = execute_real(
+            program_yaml=program_path,
+            rules_root=_config.root,
+            user_inputs=dict(body.inputs),
+            relations=dict(body.relations) if body.relations else None,
+            queried_outputs=body.queried_outputs,
+            period=period,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"baseline compute failed: {exc}",
+        ) from exc
+    baseline_outputs = _outputs_map(baseline_payload)
+
+    load_bearing: dict[str, list[str]] = {oid: [] for oid in body.queried_outputs}
+    no_effect: list[str] = []
+    skipped: list[str] = []
+
+    for input_id in closure_input_ids:
+        node = inputs_by_id.get(input_id)
+        if not node:
+            skipped.append(input_id)
+            continue
+
+        perturbation = _pick_perturbation(node.name, node.sample)
+        if perturbation is None:
+            skipped.append(input_id)
+            continue
+
+        # Build perturbed request: deep-copy baseline inputs/relations
+        # then overwrite this one input.
+        pert_inputs = dict(body.inputs)
+        pert_relations: dict[str, list[dict[str, Any]]] = (
+            {k: [dict(m) for m in v] for k, v in (body.relations or {}).items()}
+        )
+        if node.entity == "Person" and node.relation_legal_id:
+            members = pert_relations.setdefault(node.relation_legal_id, [{}])
+            if not members:
+                members.append({})
+            members[0][input_id] = perturbation
+        else:
+            pert_inputs[input_id] = perturbation
+
+        try:
+            pert_payload = execute_real(
+                program_yaml=program_path,
+                rules_root=_config.root,
+                user_inputs=pert_inputs,
+                relations=pert_relations or None,
+                queried_outputs=body.queried_outputs,
+                period=period,
+            )
+        except Exception:
+            skipped.append(input_id)
+            continue
+
+        pert_outputs = _outputs_map(pert_payload)
+        any_moved = False
+        for oid in body.queried_outputs:
+            if pert_outputs.get(oid) != baseline_outputs.get(oid):
+                load_bearing[oid].append(input_id)
+                any_moved = True
+        if not any_moved:
+            no_effect.append(input_id)
+
+    return SensitivityResponseBody(
+        baseline=baseline_payload.get("outputs", []),
+        load_bearing=load_bearing,
+        no_effect=no_effect,
+        skipped=skipped,
+        mode=_mode.name,
+    )
