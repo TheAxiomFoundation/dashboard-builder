@@ -98,16 +98,12 @@ def _flat_inputs_to_records(
                 # (host) entity second. count_where iterates the related
                 # slot and looks up its inputs there. Inverting these has
                 # been silently dropping every per-member input.
-                relation_names = [legal_id]
-                bare_relation = legal_id.split("#relation.", 1)[-1]
-                if bare_relation != legal_id:
-                    relation_names.append(bare_relation)
-                for relation_name in relation_names:
-                    relations.append({
-                        "name": relation_name,
-                        "tuple": [member_id, entity_id],
-                        "interval": {"start": interval_start, "end": interval_end},
-                    })
+                relation_name = legal_id.split("#relation.", 1)[-1]
+                relations.append({
+                    "name": relation_name,
+                    "tuple": [member_id, entity_id],
+                    "interval": {"start": interval_start, "end": interval_end},
+                })
                 if isinstance(member, dict):
                     for sub_id, sub_value in member.items():
                         inputs.append({
