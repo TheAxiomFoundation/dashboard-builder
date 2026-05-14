@@ -21,15 +21,15 @@ import modal
 app = modal.App("dashboard-builder-compute")
 
 # Bump when source repos change to bust the layer cache and re-build.
-ENGINE_VERSION = "v2-reiteration"
+ENGINE_VERSION = "v3-latest-rulespec"
 
 # Pinned commit SHAs — keep these in sync with the local checkouts you
 # develop against to avoid trace/spec drift. The CO rule pack uses the
-# `reiteration` rule kind, which axiom-rules-engine only supports starting at
-# 21554e75; older SHAs (the v1 pin at 9106f44) reject the program.
-AXIOM_RULES_SHA = "21554e75196c8fcb0314d600ede6ab1145813e1a"
-RULES_US_SHA = "3aca0f3bee0eb128e3d091b02734ab5ebea527fc"
-RULES_US_CO_SHA = "e3f7c374177d95debfd092061fedd99fb8e6dccb"
+# `reiteration` and namespaced data relations require recent engine/rulespec
+# commits; older pins can compile locally but fail once deployed.
+AXIOM_RULES_SHA = "f2412104e45c49d5b90818da38211fac70419d52"
+RULES_US_SHA = "cfb84c81b310f9e04628fc82e4affa30914a7467"
+RULES_US_CO_SHA = "65eadad2ff4b7027badb7005430083f26da15e1a"
 
 image = (
     modal.Image.debian_slim(python_version="3.13")
@@ -78,7 +78,7 @@ image = (
         {
             # engine.py reads this to invoke axiom-rules-engine; if unset the service
             # silently degrades to demo mode.
-            "AXIOM_RULES_ENGINE_BIN": "/opt/axiom-rules-engine/target/release/axiom-rules",
+            "AXIOM_RULES_ENGINE_BIN": "/opt/axiom-rules-engine/target/release/axiom-rules-engine",
             # registry.py uses this as the parent dir to resolve `rulespec-*` clones.
             "AXIOM_RULESPEC_ROOT": "/opt",
             # axiom-rules-engine uses this when resolving cross-repo imports.
