@@ -74,6 +74,8 @@ image = (
             "AXIOM_RULES_ENGINE_BIN": "/opt/axiom-rules-engine/target/release/axiom-rules",
             # registry.py uses this as the parent dir to resolve `rulespec-*` clones.
             "AXIOM_RULESPEC_ROOT": "/opt",
+            # axiom-rules-engine uses this when resolving cross-repo imports.
+            "AXIOM_RULESPEC_REPO_ROOTS": "/opt",
             # CORS for the Vercel-hosted builder. Tighten to a specific origin
             # if/when the project graduates beyond demo use.
             "ALLOW_ORIGINS": "*",

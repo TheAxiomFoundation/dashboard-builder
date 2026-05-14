@@ -951,8 +951,13 @@ def _ensure_compiled(binary: str, program_yaml: Path) -> Path:
     artifact_dir = Path(__file__).parent / "artifacts"
     artifact_dir.mkdir(exist_ok=True)
     artifact = artifact_dir / (program_yaml.stem + ".compiled.json")
+    rules_root = Path(os.environ.get("AXIOM_RULESPEC_ROOT", program_yaml.parents[1]))
+    env = dict(os.environ)
+    env.setdefault("AXIOM_RULESPEC_REPO_ROOTS", str(rules_root))
     proc = subprocess.run(
         [binary, "compile", "--program", str(program_yaml), "--output", str(artifact)],
+        cwd=rules_root,
+        env=env,
         text=True,
         capture_output=True,
         check=False,
