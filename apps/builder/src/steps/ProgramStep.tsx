@@ -249,7 +249,9 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
 ];
 
 export function curatedFor(p: ProgramSummary): CuratedProgram | undefined {
-  return CURATED_PROGRAMS.find((c) => c.repo === p.repo && c.path === p.path);
+  return CURATED_PROGRAMS.find(
+    (c) => repoMatches(c.repo, p.repo) && c.path === p.path,
+  );
 }
 
 export function curatedForDraft(
@@ -257,8 +259,14 @@ export function curatedForDraft(
 ): CuratedProgram | undefined {
   if (!program) return undefined;
   return CURATED_PROGRAMS.find(
-    (c) => c.repo === program.repo && c.path === program.path,
+    (c) => repoMatches(c.repo, program.repo) && c.path === program.path,
   );
+}
+
+function repoMatches(curatedRepo: string, actualRepo: string): boolean {
+  if (curatedRepo === actualRepo) return true;
+  const normalize = (repo: string) => repo.replace(/^rules-/, "rulespec-");
+  return normalize(curatedRepo) === normalize(actualRepo);
 }
 
 export function curatedCoreQuestionIdsForOutputs(

@@ -110,7 +110,10 @@ export function OutputStep({
     if (!curated?.mainOutputs?.length) return null;
     const items: Array<{ rule: RuleNode; label: string; blurb?: string }> = [];
     for (const m of curated.mainOutputs) {
-      const rule = graph.rules.find((r) => r.legalId === m.legalId);
+      const expectedName = m.legalId.split("#").pop();
+      const rule = graph.rules.find(
+        (r) => r.legalId === m.legalId || r.name === expectedName,
+      );
       if (rule) items.push({ rule, label: m.label, blurb: m.blurb });
     }
     return items;
