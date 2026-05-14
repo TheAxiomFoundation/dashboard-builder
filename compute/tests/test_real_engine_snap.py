@@ -21,6 +21,7 @@ from engine import (
     _query_reference,
     execute_real,
 )
+from graph import build_graph
 
 
 SNAP_PROGRAM = Path("rules-us-co/policies/cdhs/snap/fy-2026-benefit-calculation.yaml")
@@ -141,6 +142,13 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
             "Configured axiom-rules binary could not compile the SNAP program.\n"
             f"stderr:\n{proc.stderr.strip()}",
         )
+
+    def test_graph_builds_through_rules_repo_alias(self) -> None:
+        graph = build_graph(self.program_yaml, "rules-us-co")
+
+        names = {rule.name for rule in graph.rules.values()}
+        self.assertIn("snap_eligible", names)
+        self.assertIn("snap_allotment", names)
 
     def test_snap_baseline_compute_does_not_fall_back_to_fixture(self) -> None:
         _compile_cache.clear()

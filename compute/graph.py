@@ -259,16 +259,27 @@ def _terminal_outputs(rules: dict[str, RuleNode]) -> list[str]:
 
 def build_graph(program_yaml: Path, repo: str) -> ProgramGraph:
     """Construct the full rule + input + relation graph for a program."""
-    repo_root = program_yaml.resolve()  # arbitrary path inside the repo
+    resolved_program = program_yaml.resolve()
+    repo_root = resolved_program  # arbitrary path inside the repo
     # Walk up to the repo dir so we can resolve imports against the parent of the repo.
     while repo_root.name != repo and repo_root.parent != repo_root:
         repo_root = repo_root.parent
+    if repo_root.name != repo:
+        # `rules-us-co` is often a symlink to `rulespec-us-co`. Path.resolve()
+        # follows that symlink, so the requested repo name may not exist in
+        # the resolved ancestry. Fall back to the first resolved RuleSpec repo
+        # ancestor so alias routes still build a real graph.
+        for parent in resolved_program.parents:
+            if parent.name.startswith(("rulespec-", "rules-")):
+                repo_root = parent
+                repo = parent.name
+                break
 
     rules: dict[str, RuleNode] = {}
     rule_local_index: dict[str, list[RuleNode]] = {}
     visited: set[str] = set()
 
-    program_rel = str(program_yaml.resolve().relative_to(repo_root))
+    program_rel = str(resolved_program.relative_to(repo_root))
     _add_file_to_index(repo_root, repo, program_rel, rules, rule_local_index, visited)
 
     own_file_id = _file_legal_id(repo, program_rel)
