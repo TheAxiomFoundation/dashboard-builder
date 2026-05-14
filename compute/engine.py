@@ -810,7 +810,11 @@ def _run_with_missing_input_retries(
 
             if bare_name not in pending_candidates:
                 try:
-                    pending_candidates[bare_name] = resolve_input_legal_id(_graph(), bare_name)
+                    pending_candidates[bare_name] = [
+                        candidate
+                        for candidate in resolve_input_legal_id(_graph(), bare_name)
+                        if candidate != bare_name
+                    ]
                 except Exception:
                     pending_candidates[bare_name] = []
 
@@ -838,32 +842,18 @@ def _run_with_missing_input_retries(
                 "person" if miss_entity_id.startswith("person:") else "household"
             )
 
-            # The engine reports the missing input using its bare name
-            # (no `#input.` file prefix), but won't match bare-named
-            # records back to its file-qualified declarations. Resolve
-            # bare names to candidate full IDs first; treat the full ID
-            # as authoritative for rejection-tracking.
             if "#" in reported_id:
                 full_candidates = [reported_id]
             else:
                 if reported_id not in pending_candidates:
                     try:
-                        pending_candidates[reported_id] = resolve_input_legal_id(
-                            _graph(), reported_id,
-                        )
+                        pending_candidates[reported_id] = [
+                            reported_id,
+                            *resolve_input_legal_id(_graph(), reported_id),
+                        ]
                     except Exception:
-                        pending_candidates[reported_id] = []
+                        pending_candidates[reported_id] = [reported_id]
                 full_candidates = pending_candidates[reported_id]
-                if not full_candidates:
-                    # Some compiled formulas still contain genuine bare
-                    # inputs (usually from upstream rule files whose tests
-                    # model the value as an external fact). If the engine
-                    # reports a bare input as missing and the graph cannot
-                    # legal-ID-qualify it, satisfy the exact bare name. If
-                    # that name is not accepted, the existing bare-name
-                    # rejection branch will remove it and surface a clearer
-                    # diagnostic.
-                    full_candidates = [reported_id]
 
             # Pick the first candidate we haven't already tried for this
             # entity scope. If they're all exhausted, bail with a clear
