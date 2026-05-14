@@ -114,7 +114,12 @@ class ProgramGraph:
 
 def _file_legal_id(repo: str, path: str) -> str:
     """`rulespec-us-co` + `regulations/10-ccr-2506-1/4.207.3.yaml` → `us-co:regulations/10-ccr-2506-1/4.207.3`."""
-    jurisdiction = repo[len("rules-"):] if repo.startswith("rules-") else repo
+    if repo.startswith("rulespec-"):
+        jurisdiction = repo[len("rulespec-"):]
+    elif repo.startswith("rules-"):
+        jurisdiction = repo[len("rules-"):]
+    else:
+        jurisdiction = repo
     cleaned = path.removesuffix(".yaml")
     return f"{jurisdiction}:{cleaned}"
 

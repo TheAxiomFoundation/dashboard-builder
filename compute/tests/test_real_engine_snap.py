@@ -146,9 +146,17 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
     def test_graph_builds_through_rules_repo_alias(self) -> None:
         graph = build_graph(self.program_yaml, "rules-us-co")
 
-        names = {rule.name for rule in graph.rules.values()}
-        self.assertIn("snap_eligible", names)
-        self.assertIn("snap_allotment", names)
+        rules_by_name = {rule.name: rule for rule in graph.rules.values()}
+        self.assertIn("snap_eligible", rules_by_name)
+        self.assertIn("snap_allotment", rules_by_name)
+        self.assertEqual(
+            rules_by_name["snap_eligible"].legal_id,
+            SNAP_ELIGIBLE,
+        )
+        self.assertEqual(
+            rules_by_name["snap_allotment"].legal_id,
+            SNAP_ALLOTMENT,
+        )
 
     def test_snap_baseline_compute_does_not_fall_back_to_fixture(self) -> None:
         _compile_cache.clear()
