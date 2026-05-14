@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
-import { fetchProgramGraph } from "./api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { fetchProgramGraph, fetchSensitivity, type SensitivityResult } from "./api";
 import { emptyDraft, type Draft } from "./draft";
 import { STEPS, StepHeader, StepIndicator, StepNav, type StepId } from "./Wizard";
-import { ProgramStep } from "./steps/ProgramStep";
+import {
+  ProgramStep,
+  curatedCoreQuestionIdsForOutputs,
+  curatedForDraft,
+} from "./steps/ProgramStep";
 import { OutputStep } from "./steps/OutputStep";
 import { InputStep } from "./steps/InputStep";
 import { GraphStep } from "./steps/GraphStep";
 import { PublishStep } from "./steps/PublishStep";
 import {
+  applyRecommendedSetup,
   defaultFor,
   dtypeFor,
   exposeInput,
@@ -21,42 +26,123 @@ import { validateOutput } from "./validators";
 
 const DRAFT_STORAGE_KEY = "dashboard-builder.draft";
 const STEP_STORAGE_KEY = "dashboard-builder.step";
+const SENSITIVITY_CACHE_PREFIX = "dashboard-builder.sensitivity";
+const SENSITIVITY_CACHE_VERSION = "v5-capped-core-baseline";
+const SENSITIVITY_TIMEOUT_MS = 120000;
 
-function loadDraft(): Draft {
+interface SensitivityBaseline {
+  inputs: Record<string, string | number | boolean>;
+  relations: Record<string, Array<Record<string, string | number | boolean>>>;
+}
+
+function loadCachedSensitivity(key: string): SensitivityResult | null {
   try {
-    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!raw) return emptyDraft();
-    return JSON.parse(raw) as Draft;
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as SensitivityResult) : null;
   } catch {
-    return emptyDraft();
+    return null;
   }
 }
 
+function saveCachedSensitivity(key: string, value: SensitivityResult) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Cache writes are best-effort; the builder should keep working if
+    // storage is full or disabled.
+  }
+}
+
+function hasSensitivityCoreQuestions(value: SensitivityResult): boolean {
+  return Object.values(value.load_bearing).some((ids) => ids.length > 0);
+}
+
+function curatedSensitivityForOutputs(draft: Draft): SensitivityResult | null {
+  const outputIds = draft.outputs.map((output) => output.legalId);
+  const coreIds = curatedCoreQuestionIdsForOutputs(draft.program, outputIds);
+  if (!coreIds) return null;
+  return {
+    baseline: [],
+    load_bearing: Object.fromEntries(
+      outputIds.map((outputId) => [outputId, coreIds]),
+    ),
+    effects: {},
+    no_effect: [],
+    skipped: [],
+    mode: "curated",
+  };
+}
+
+function buildSensitivityBaseline(draft: Draft): SensitivityBaseline {
+  const inputs: SensitivityBaseline["inputs"] = {};
+  const relations: SensitivityBaseline["relations"] = {};
+  let firstRelationMemberCount: number | null = null;
+
+  for (const input of draft.inputs) {
+    inputs[input.legalId] = input.default;
+  }
+
+  for (const relation of draft.relations) {
+    const memberCount = Math.max(1, relation.minCount);
+    if (firstRelationMemberCount === null) firstRelationMemberCount = memberCount;
+    relations[relation.legalId] = Array.from({ length: memberCount }, () => {
+      const member: Record<string, string | number | boolean> = {};
+      for (const input of relation.memberInputs) {
+        member[input.legalId] = input.default;
+      }
+      return member;
+    });
+  }
+
+  if (firstRelationMemberCount !== null) {
+    for (const legalId of Object.keys(inputs)) {
+      const fragment = legalId.split("#")[1] ?? "";
+      if (/household.*_size$/i.test(fragment)) {
+        inputs[legalId] = firstRelationMemberCount;
+      }
+    }
+  }
+
+  return { inputs, relations };
+}
+
+function baselineCacheToken(baseline: SensitivityBaseline): string {
+  return stableStringify(baseline);
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function loadDraft(): Draft {
+  return emptyDraft();
+}
+
 function loadStep(): StepId {
-  const raw = localStorage.getItem(STEP_STORAGE_KEY);
-  if (
-    raw === "program" ||
-    raw === "outputs" ||
-    raw === "inputs" ||
-    raw === "review" ||
-    raw === "publish"
-  )
-    return raw;
-  // Backward-compat for the old id from before the rename.
-  if (raw === "graph") return "review";
   return "program";
 }
 
 export function App() {
   const [draft, setDraft] = useState<Draft>(loadDraft);
   const [stepId, setStepId] = useState<StepId>(loadStep);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   // Persist draft + step across refreshes.
   useEffect(() => {
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    localStorage.removeItem(DRAFT_STORAGE_KEY);
   }, [draft]);
   useEffect(() => {
-    localStorage.setItem(STEP_STORAGE_KEY, stepId);
+    localStorage.removeItem(STEP_STORAGE_KEY);
   }, [stepId]);
 
   // On mount, if the persisted draft already has a program selected, re-fetch
@@ -93,47 +179,119 @@ export function App() {
       targetIndex === 1 ||
       STEPS.slice(0, targetIndex - 1).every((s) => s.canContinue(draft)) ||
       target.id === stepId;
-    if (reachable) setStepId(id);
+    if (reachable) {
+      if (id === "outputs" && stepId !== "outputs") setOutputStage("main");
+      if (id === "inputs" && stepId !== "inputs") {
+        setInputStage("depth");
+        setDefaultsBackTarget("sections");
+      }
+      setStepId(id);
+    }
   }
 
-  // Step II ("outputs") is split into two sub-stages: cards-first
-  // ("main") for the curated 1-3 top-level results, then a separate
-  // ("intermediates") screen for the document picker if the user
-  // wants to surface anything else. Continue/Back walk through both
-  // before moving on to Step III.
-  const [outputStage, setOutputStage] = useState<"main" | "intermediates">(
-    "main",
-  );
-  // Reset the sub-stage whenever we leave Step II so re-entering
-  // always starts with the cards.
-  useEffect(() => {
-    if (stepId !== "outputs") setOutputStage("main");
-  }, [stepId]);
+  // Step II ("outputs") is split into two sub-stages:
+  //   "main"         — cards-first picker for the curated top-level
+  //                    results (Eligibility, Amount, Custom).
+  //   "intermediates"— the full rule picker, reached from Custom.
+  // Picking Eligibility or Amount advances straight to Step III.
+  const [outputStage, setOutputStage] = useState<
+    "main" | "intermediates"
+  >("main");
 
-  // Step II's intermediates sub-stage gets a different lede — by then
-  // the user has already picked their main result(s), so the prompt
-  // shifts to "do you want to surface the intermediate steps too?"
-  // instead of "what should the calculator tell the user?".
+  // Step III ("inputs") is now about designing the client-facing form.
+  // The guided path walks: choose service depth → choose form sections →
+  // set starting values. The full browser is an optional detour from the
+  // section screen.
+  type InputStage =
+    | "depth"
+    | "sections"
+    | "browse"
+    | "defaults";
+  const INPUT_STAGES: InputStage[] = [
+    "depth",
+    "sections",
+    "defaults",
+  ];
+  const [inputStage, setInputStage] = useState<InputStage>("depth");
+  const [defaultsBackTarget, setDefaultsBackTarget] = useState<
+    "sections" | "browse"
+  >("sections");
+
+  // Per-sub-stage lede + heading overrides. The wizard pane reads
+  // baseStep statically; we layer overrides on top so each sub-stage
+  // (Step II intermediates, Step III household/income/etc.) reads
+  // like its own focused question.
   const step = useMemo(() => {
     if (baseStep.id === "outputs" && outputStage === "intermediates") {
       return {
         ...baseStep,
         lede: (
           <>
-            Surface any intermediate steps too — gross income, deductions,
-            etc. — if you want users to see how the result was derived. Skip
-            if not.
+            Choose the exact output this workflow should produce. You can use
+            a standard result or a more specific rule-pack value.
           </>
         ),
       };
     }
+    if (baseStep.id === "inputs") {
+      const stageHeadings: Record<InputStage, { title: React.ReactNode; lede: React.ReactNode }> = {
+        depth: {
+          title: <>How complete should the <em>form</em> be?</>,
+          lede: <>Choose the level of support this client-facing form should provide. You can add detail section by section.</>,
+        },
+        sections: {
+          title: <>Choose form <em>sections</em></>,
+          lede: <>Review where the selected questions came from, then add or remove categories of client-facing questions.</>,
+        },
+        browse: {
+          title: <>Refine the <em>questions</em></>,
+          lede: <>Open any section to add more precision. The form can stay short, or reveal more rule detail where the client workflow needs it.</>,
+        },
+        defaults: {
+          title: <>Choose starting <em>values</em></>,
+          lede: <>Decide whether the deployed calculator opens blank, with a typical example, or with custom default answers.</>,
+        },
+      };
+      const override = stageHeadings[inputStage];
+      return { ...baseStep, ...override };
+    }
     return baseStep;
-  }, [baseStep, outputStage]);
+  }, [baseStep, outputStage, inputStage]);
 
   function next() {
-    if (stepId === "outputs" && outputStage === "main") {
-      setOutputStage("intermediates");
+    if (stepId === "program") {
+      setOutputStage("main");
+      setStepId("outputs");
       return;
+    }
+    if (stepId === "outputs" && outputStage === "main") {
+      setInputStage("depth");
+      setDefaultsBackTarget("sections");
+      setStepId("inputs");
+      return;
+    }
+    if (stepId === "outputs" && outputStage === "intermediates") {
+      setInputStage("depth");
+      setDefaultsBackTarget("sections");
+      setStepId("inputs");
+      return;
+    }
+    if (stepId === "inputs" && inputStage === "browse") {
+      setDefaultsBackTarget("browse");
+      setInputStage("defaults");
+      return;
+    }
+    if (stepId === "inputs" && inputStage === "sections") {
+      setDefaultsBackTarget("sections");
+      setInputStage("defaults");
+      return;
+    }
+    if (stepId === "inputs") {
+      const i = INPUT_STAGES.indexOf(inputStage);
+      if (i >= 0 && i < INPUT_STAGES.length - 1) {
+        setInputStage(INPUT_STAGES[i + 1]!);
+        return;
+      }
     }
     const idx = step.index;
     if (idx < STEPS.length) setStepId(STEPS[idx]!.id);
@@ -143,9 +301,152 @@ export function App() {
       setOutputStage("main");
       return;
     }
+    if (stepId === "inputs" && inputStage === "depth") {
+      setStepId("outputs");
+      return;
+    }
+    if (stepId === "inputs" && inputStage === "browse") {
+      setInputStage("sections");
+      return;
+    }
+    if (stepId === "inputs" && inputStage === "defaults") {
+      setInputStage(defaultsBackTarget);
+      return;
+    }
+    if (stepId === "review") {
+      setStepId("inputs");
+      return;
+    }
+    if (stepId === "inputs") {
+      const i = INPUT_STAGES.indexOf(inputStage);
+      if (i > 0) {
+        setInputStage(INPUT_STAGES[i - 1]!);
+        return;
+      }
+    }
     const idx = step.index;
     if (idx > 1) setStepId(STEPS[idx - 2]!.id);
   }
+
+  // ── Sensitivity analysis ────────────────────────────────────────────
+  // Once the user has picked main outputs we kick off /sensitivity in
+  // the background — figures out which inputs in the dependency closure
+  // actually move those outputs vs. which the engine will silently
+  // default to "no effect on the answer." Step III renders badges +
+  // auto-exposes the load-bearing set when the result lands.
+  //
+  // Cached per output set so flipping back to Step II and adding more
+  // doesn't redundantly recompute. Re-fetches when the picked output
+  // legal IDs change.
+  const [sensitivity, setSensitivity] = useState<SensitivityResult | null>(null);
+  const [sensitivityStatus, setSensitivityStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const sensitivityBaseline = useMemo(
+    () => buildSensitivityBaseline(draft),
+    [draft.inputs, draft.relations],
+  );
+  const sensitivityCacheKey = useMemo(() => {
+    if (!draft.program) return null;
+    if (draft.outputs.length === 0) return null;
+    const outs = [...draft.outputs.map((o) => o.legalId)].sort().join("|");
+    const baseline = baselineCacheToken(sensitivityBaseline);
+    return [
+      SENSITIVITY_CACHE_PREFIX,
+      SENSITIVITY_CACHE_VERSION,
+      draft.program.repo,
+      draft.program.path,
+      outs,
+      baseline,
+    ].join("::");
+  }, [draft.program, draft.outputs, sensitivityBaseline]);
+  const lastFetchedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!draft.program || draft.outputs.length === 0) {
+      setSensitivity(null);
+      setSensitivityStatus("idle");
+      return;
+    }
+
+    const curatedSensitivity = curatedSensitivityForOutputs(draft);
+    if (curatedSensitivity) {
+      lastFetchedKey.current = sensitivityCacheKey;
+      setSensitivity(curatedSensitivity);
+      setSensitivityStatus("ready");
+      return;
+    }
+
+    if (!sensitivityCacheKey) {
+      setSensitivity(null);
+      setSensitivityStatus("idle");
+      return;
+    }
+
+    const cached = loadCachedSensitivity(sensitivityCacheKey);
+    if (cached) {
+      lastFetchedKey.current = sensitivityCacheKey;
+      setSensitivity(cached);
+      setSensitivityStatus("ready");
+      return;
+    }
+
+    if (sensitivityCacheKey === lastFetchedKey.current) return;
+    lastFetchedKey.current = sensitivityCacheKey;
+    setSensitivityStatus("loading");
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      controller.abort();
+    }, SENSITIVITY_TIMEOUT_MS);
+    fetchSensitivity(
+      { repo: draft.program.repo, path: draft.program.path },
+      draft.outputs.map((o) => o.legalId),
+      sensitivityBaseline,
+      controller.signal,
+    )
+      .then((res) => {
+        if (cancelled) return;
+        window.clearTimeout(timeout);
+        if (res.mode === "real" && hasSensitivityCoreQuestions(res)) {
+          saveCachedSensitivity(sensitivityCacheKey, res);
+        }
+        setSensitivity(res);
+        setSensitivityStatus("ready");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        window.clearTimeout(timeout);
+        setSensitivityStatus("error");
+      });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [sensitivityCacheKey, draft.program, draft.outputs, sensitivityBaseline]);
+
+  // Belt-and-suspenders auto-apply: if the user lands on Step III with
+  // a picked output but no inputs/relations exposed (e.g. they have a
+  // persisted draft from before the auto-apply existed, or their pick
+  // happened via a flow that bypassed OutputStep.toggle), seed the
+  // recommended defaults so the "Use the default questions?" screen
+  // actually has questions to show.
+  useEffect(() => {
+    if (stepId !== "inputs") return;
+    if (!draft.graph || !draft.program) return;
+    if (draft.outputs.length === 0) return;
+    if (draft.inputs.length > 0 || draft.relations.length > 0) return;
+    const curated = curatedForDraft(draft.program);
+    if (!curated?.recommendedInputs?.length) return;
+    setDraft(
+      applyRecommendedSetup(
+        draft,
+        draft.graph,
+        curated.recommendedInputs,
+        curated.recommendedMemberCount ?? 3,
+      ),
+    );
+  }, [stepId, draft]);
 
   /**
    * Builder hook for "+ Expose" buttons in the graph and input picker.
@@ -262,6 +563,15 @@ export function App() {
     setDraft({ ...draft, outputs: [...draft.outputs, selectOutput(rule)] });
   }
 
+  function resetBuilder() {
+    setDraft(emptyDraft());
+    setStepId("program");
+    setOutputStage("main");
+    setInputStage("depth");
+    setDefaultsBackTarget("sections");
+    setResetConfirmOpen(false);
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -280,17 +590,49 @@ export function App() {
         <div className="app-actions">
           <button
             className="btn ghost"
-            onClick={() => {
-              if (!confirm("Reset the builder? This clears your current draft.")) return;
-              setDraft(emptyDraft());
-              setStepId("program");
-            }}
+            onClick={() => setResetConfirmOpen(true)}
             title="Clear the saved draft and start over"
           >
             Reset
           </button>
         </div>
       </header>
+
+      {resetConfirmOpen && (
+        <div
+          className="reset-confirm-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setResetConfirmOpen(false);
+          }}
+        >
+          <section
+            className="reset-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reset-confirm-title"
+          >
+            <div className="reset-confirm-kicker">Reset builder</div>
+            <h2 id="reset-confirm-title">Start over?</h2>
+            <p>
+              This clears the current draft and returns you to Step I. The next
+              time you open the builder, it will start fresh.
+            </p>
+            <div className="reset-confirm-actions">
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setResetConfirmOpen(false)}
+              >
+                Cancel
+              </button>
+              <button type="button" className="btn" onClick={resetBuilder}>
+                Reset builder
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <div
         className={`workspace ${stepId === "program" ? "wizard-centered" : ""}`}
@@ -305,9 +647,19 @@ export function App() {
                 draft={draft}
                 setDraft={setDraft}
                 stage={outputStage}
+                onAdvanceToIntermediates={() => setOutputStage("intermediates")}
               />
             )}
-            {stepId === "inputs" && <InputStep draft={draft} setDraft={setDraft} />}
+            {stepId === "inputs" && (
+              <InputStep
+                draft={draft}
+                setDraft={setDraft}
+                sensitivity={sensitivity}
+                sensitivityStatus={sensitivityStatus}
+                stage={inputStage}
+                onOpenAdvanced={() => setInputStage("browse")}
+              />
+            )}
             {stepId === "review" && (
               <GraphStep
                 draft={draft}
@@ -331,7 +683,6 @@ export function App() {
             {stepId === "publish" && (
               <PublishStep
                 draft={draft}
-                setDraft={setDraft}
                 onExposeInput={handleExposeInput}
                 exposedInputIds={exposedInputIds}
               />

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Draft, OutputSelection } from "../draft";
 import {
+  applyRecommendedSetup,
   humanize,
   humanizeWithoutPrefix,
   pruneUnreachable,
@@ -15,12 +16,13 @@ interface Props {
   draft: Draft;
   setDraft: (d: Draft) => void;
   /**
-   * Sub-stage within Step II. "main" shows the cards-first picker for
-   * top-level results (no sidebar). "intermediates" shows the document
-   * picker + selected-pills sidebar for power users who want to surface
-   * derived rules. Wizard nav drives this — see App.tsx.
+   * Sub-stage within Step II.
+   *   - "main"          — curated cards (Eligibility / Amount / Custom).
+   *   - "intermediates" — full output picker, reached via Custom.
    */
   stage: "main" | "intermediates";
+  /** Advance from the curated goal cards into the full output picker. */
+  onAdvanceToIntermediates?: () => void;
 }
 
 /**
@@ -35,7 +37,12 @@ interface Props {
  * Per-row visual is reduced to: checkbox · dtype glyph · name · edit/×.
  * Legal IDs only appear in the inline edit panel (when the user clicks Edit).
  */
-export function OutputStep({ draft, setDraft, stage }: Props) {
+export function OutputStep({
+  draft,
+  setDraft,
+  stage,
+  onAdvanceToIntermediates,
+}: Props) {
   const [query, setQuery] = useState("");
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
@@ -249,7 +256,77 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
     // we never want the user trapped in a broken state.)
     const issue = validateOutput(rule, draft, graph.rules);
     if (issue) return;
-    setDraft({ ...draft, outputs: [...draft.outputs, selectOutput(rule)] });
+    let next: Draft = {
+      ...draft,
+      outputs: [...draft.outputs, selectOutput(rule)],
+    };
+    // Auto-apply the curated program's recommended starter inputs
+    // whenever the user picks their first main result AND nothing's
+    // exposed yet. We deliberately don't gate on the persisted
+    // `usedRecommendedSetup` flag — that bit gets stuck across
+    // sessions and would prevent re-applying after the user clears
+    // their picks and starts fresh. The empty-inputs check already
+    // guarantees we don't double-apply on top of existing exposures,
+    // and applyRecommendedSetup dedupes per-input regardless.
+    const curated = curatedForDraft(draft.program);
+    if (
+      next.outputs.length === 1 &&
+      next.inputs.length === 0 &&
+      next.relations.length === 0 &&
+      curated?.recommendedInputs?.length
+    ) {
+      next = applyRecommendedSetup(
+        next,
+        graph,
+        curated.recommendedInputs,
+        curated.recommendedMemberCount ?? 3,
+      );
+    }
+    setDraft(next);
+  }
+
+  function toggleServiceGoal(legalIds: string[]) {
+    if (!graph) return;
+    const allSelected = legalIds.every((id) => selectedIds.has(id));
+    if (allSelected) {
+      setDraft(
+        pruneUnreachable({
+          ...draft,
+          outputs: draft.outputs.filter((o) => !legalIds.includes(o.legalId)),
+        }),
+      );
+      return;
+    }
+    const rules = legalIds
+      .filter((id) => !selectedIds.has(id))
+      .map((id) => graph.rules.find((r) => r.legalId === id))
+      .filter((r): r is RuleNode => !!r && !validateOutput(r, draft, graph.rules));
+    if (rules.length === 0) return;
+    let next: Draft = {
+      ...draft,
+      outputs: [...draft.outputs, ...rules.map((rule) => {
+        const curatedLabel = mainOutputs?.find(
+          (m) => m.rule.legalId === rule.legalId,
+        )?.label;
+        const selected = selectOutput(rule);
+        return curatedLabel ? { ...selected, label: curatedLabel } : selected;
+      })],
+    };
+    const curated = curatedForDraft(draft.program);
+    if (
+      draft.outputs.length === 0 &&
+      next.inputs.length === 0 &&
+      next.relations.length === 0 &&
+      curated?.recommendedInputs?.length
+    ) {
+      next = applyRecommendedSetup(
+        next,
+        graph,
+        curated.recommendedInputs,
+        curated.recommendedMemberCount ?? 3,
+      );
+    }
+    setDraft(next);
   }
 
   function toggleGroupOpen(key: string, defaultOpen: boolean) {
@@ -283,32 +360,91 @@ export function OutputStep({ draft, setDraft, stage }: Props) {
             label: humanize(rule.name),
             blurb: rule.source ?? undefined,
           }));
+    const eligibility = cardItems.find((item) =>
+      /eligib/i.test(item.label) || /eligible/i.test(item.rule.name),
+    );
+    const amount = cardItems.find((item) =>
+      /benefit|amount|allotment/i.test(item.label) ||
+      /allotment|benefit|amount/i.test(item.rule.name),
+    );
+    const goalCards =
+      eligibility && amount
+        ? [
+            {
+              key: "eligibility",
+              title: "Check eligibility",
+              copy: "Answer whether the household appears eligible for SNAP.",
+              state: "Eligibility result",
+              ids: [eligibility.rule.legalId],
+            },
+            {
+              key: "amount",
+              title: "Estimate benefit amount",
+              copy: "Estimate the monthly SNAP amount the household may receive.",
+              state: "Amount result",
+              ids: [amount.rule.legalId],
+            },
+          ]
+        : null;
     return (
       <div className="step-body output-stage-main">
-        <p className="output-stage-prompt">
-          Pick the main result(s) your calculator will tell the user.
-        </p>
         <div className="output-headline-cards">
-          {cardItems.map(({ rule, label, blurb }) => {
-            const isSelected = selectedIds.has(rule.legalId);
+          {goalCards
+            ? goalCards.map((goal) => {
+            const isSelected = goal.ids.every((id) => selectedIds.has(id));
             return (
               <button
-                key={rule.legalId}
+                key={goal.key}
                 type="button"
                 className={`output-headline-card ${isSelected ? "is-selected" : ""}`}
-                onClick={() => toggle(rule.legalId)}
+                onClick={() => toggleServiceGoal(goal.ids)}
                 aria-pressed={isSelected}
               >
-                <span className="output-headline-card-title">{label}</span>
-                {blurb && (
-                  <span className="output-headline-card-source">{blurb}</span>
-                )}
+                <span className="output-headline-card-title">{goal.title}</span>
+                <span className="output-headline-card-source">{goal.copy}</span>
                 <span className="output-headline-card-state">
-                  {isSelected ? "Picked ✓" : "Pick"}
+                  {isSelected ? "Selected ✓" : goal.state}
                 </span>
               </button>
             );
-          })}
+          })
+            : cardItems.map(({ rule, label, blurb }) => {
+                const isSelected = selectedIds.has(rule.legalId);
+                return (
+                  <button
+                    key={rule.legalId}
+                    type="button"
+                    className={`output-headline-card ${isSelected ? "is-selected" : ""}`}
+                    onClick={() => toggle(rule.legalId)}
+                    aria-pressed={isSelected}
+                  >
+                    <span className="output-headline-card-title">{label}</span>
+                    {blurb && (
+                      <span className="output-headline-card-source">{blurb}</span>
+                    )}
+                    <span className="output-headline-card-state">
+                      {isSelected ? "Picked ✓" : "Pick"}
+                    </span>
+                  </button>
+                );
+              })}
+
+          {onAdvanceToIntermediates && cardItems.length > 0 && (
+            <button
+              type="button"
+              className="output-headline-card output-headline-card-custom"
+              onClick={onAdvanceToIntermediates}
+            >
+              <span className="output-headline-card-title">Custom output</span>
+              <span className="output-headline-card-source">
+                Pick a different result, eligibility check, or calculation
+                value from the rule pack.
+              </span>
+              <span className="output-headline-card-state">
+                Browse outputs →
+              </span>
+            </button>
+          )}
         </div>
         {cardItems.length === 0 && (
           <div className="empty-hint">
@@ -567,4 +703,3 @@ function scoreRule(rule: RuleNode, q: string): number {
   if ((rule.source ?? "").toLowerCase().includes(q)) s += 10;
   return s;
 }
-

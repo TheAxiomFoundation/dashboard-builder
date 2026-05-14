@@ -22,6 +22,7 @@ Two design choices that keep this universal across rule packs:
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -124,6 +125,31 @@ def _import_to_repo_path(import_id: str) -> tuple[str, str]:
     return f"rulespec-{jurisdiction}", f"{body}.yaml"
 
 
+def _repo_dir(parent: Path, repo: str, rel_path: str | None = None) -> Path:
+    """Resolve a rule-pack repo, honoring the same alias roots as axiom-rules.
+
+    Local development may have canonical aliases in `compute/_axiom` such as
+    `rules-us -> /Users/.../rulespec-us`. Prefer those over stale sibling
+    checkouts so the graph and engine inspect the same files.
+    """
+    candidates: list[Path] = []
+    if env_roots := os.environ.get("AXIOM_RULESPEC_REPO_ROOTS"):
+        for raw in env_roots.split(os.pathsep):
+            if not raw:
+                continue
+            root = Path(raw).expanduser()
+            candidates.append(root if root.name == repo else root / repo)
+    candidates.append(parent / repo)
+
+    for candidate in candidates:
+        if rel_path is None:
+            if candidate.exists():
+                return candidate
+        elif (candidate / rel_path).exists():
+            return candidate
+    return candidates[0]
+
+
 def _tokenize_formula(formula: str) -> set[str]:
     """All bare identifiers in a formula, lowercased — minus reserved words and pure numbers."""
     tokens = set(_IDENT_RE.findall(formula or ""))
@@ -144,7 +170,7 @@ def _add_file_to_index(
         return
     visited.add(file_id)
 
-    yaml_path = repo_root.parent / repo / rel_path
+    yaml_path = _repo_dir(repo_root.parent, repo, rel_path) / rel_path
     if not yaml_path.exists():
         return  # missing rule pack — caller loaded only what's on disk
 
