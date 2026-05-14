@@ -71,6 +71,14 @@ for repo in rulespec-us rulespec-us-co; do
   fi
 done
 
+ln -sfn "$PARENT_DIR/rulespec-us" "$PARENT_DIR/rules-us"
+ln -sfn "$PARENT_DIR/rulespec-us-co" "$PARENT_DIR/rules-us-co"
+mkdir -p "$PARENT_DIR/_axiom"
+ln -sfn "$PARENT_DIR/rulespec-us" "$PARENT_DIR/_axiom/rulespec-us"
+ln -sfn "$PARENT_DIR/rulespec-us-co" "$PARENT_DIR/_axiom/rulespec-us-co"
+ln -sfn "$PARENT_DIR/rulespec-us" "$PARENT_DIR/_axiom/rules-us"
+ln -sfn "$PARENT_DIR/rulespec-us-co" "$PARENT_DIR/_axiom/rules-us-co"
+
 cat <<'EOF'
 
   Engine ready.

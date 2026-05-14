@@ -57,6 +57,13 @@ image = (
         f"cd /opt/rulespec-us && git checkout {RULES_US_SHA}",
         "git clone https://github.com/TheAxiomFoundation/rulespec-us-co.git /opt/rulespec-us-co",
         f"cd /opt/rulespec-us-co && git checkout {RULES_US_CO_SHA}",
+        "ln -sfn /opt/rulespec-us /opt/rules-us",
+        "ln -sfn /opt/rulespec-us-co /opt/rules-us-co",
+        "mkdir -p /opt/_axiom",
+        "ln -sfn /opt/rulespec-us /opt/_axiom/rulespec-us",
+        "ln -sfn /opt/rulespec-us-co /opt/_axiom/rulespec-us-co",
+        "ln -sfn /opt/rulespec-us /opt/_axiom/rules-us",
+        "ln -sfn /opt/rulespec-us-co /opt/_axiom/rules-us-co",
         # Build the Rust engine. Release build for runtime perf.
         ". $HOME/.cargo/env && cd /opt/axiom-rules-engine && cargo build --release",
     )
