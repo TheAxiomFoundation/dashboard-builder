@@ -4,7 +4,7 @@ Two services, both under PolicyEngine's accounts:
 
 | Where | What | Why |
 |---|---|---|
-| **Modal** (`dashboard-builder-compute`) | The Rust `axiom-rules` binary, pinned rule-pack repos, and the `compute/` FastAPI service that wraps them. | Vercel can't run native binaries; Modal containers can. |
+| **Modal** (`dashboard-builder-compute`) | The Rust `axiom-rules-engine` binary, pinned rule-pack repos, and the `compute/` FastAPI service that wraps them. | Vercel can't run native binaries; Modal containers can. |
 | **Vercel** (`dashboard-builder`) | The Vite + React wizard from `apps/builder`. | Standard static-SPA target. |
 
 The Vite app calls the Modal endpoint through the `VITE_COMPUTE_URL` env
@@ -38,7 +38,7 @@ curl https://policyengine--dashboard-builder-compute-web.modal.run/healthz
 # → {"status":"ok","mode":"real",...}
 ```
 
-To re-deploy after a rule-pack or `axiom-rules` change, bump the matching
+To re-deploy after a rule-pack or `axiom-rules-engine` change, bump the matching
 SHA in `modal_app.py`, bump `ENGINE_VERSION` to bust the layer cache, and
 run `modal deploy` again.
 
@@ -82,7 +82,7 @@ CNAME record in the relevant DNS provider.
   `packages/spec/`): `vercel deploy --prod` — or push to `main` if you
   wire auto-deploy in the Vercel project settings (recommended).
 - **Compute / engine changes** (anything under `compute/`, an
-  `axiom-rules` upgrade, rule-pack content update): bump
+  `axiom-rules-engine` upgrade, rule-pack content update): bump
   `ENGINE_VERSION` in `modal_app.py`, update the relevant SHA, then run
   `modal deploy modal_app.py`. The frontend doesn't need a Vercel
   redeploy unless its code also changed.
@@ -101,7 +101,7 @@ to `http://127.0.0.1:8787`.
   a specific request. Tail logs with `modal app logs dashboard-builder-compute`.
 - **Builder shows "compute failed (network)"** → the Modal service is
   cold or unreachable. Hit `/healthz` directly to confirm.
-- **`/healthz` reports `mode: demo`** → `AXIOM_RULES_BIN` isn't set
+- **`/healthz` reports `mode: demo`** → `AXIOM_RULES_ENGINE_BIN` isn't set
   inside the container. Re-check the `image.env(...)` call in
   `modal_app.py` and re-deploy.
 - **Vercel build fails on `corepack pnpm`** → the project's Node version

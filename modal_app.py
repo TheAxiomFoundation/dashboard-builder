@@ -1,8 +1,8 @@
 """Modal deployment for the dashboard-builder compute service.
 
 Hosts the FastAPI service from ``compute/main.py`` with the Rust
-``axiom-rules`` binary pre-built and the rule-pack repos cloned into
-``/opt/rules-*`` (so ``AXIOM_RULES_ROOT=/opt`` lets the service resolve
+``axiom-rules-engine`` binary pre-built and the rule-pack repos cloned into
+``/opt/rulespec-*`` (so ``AXIOM_RULESPEC_ROOT=/opt`` lets the service resolve
 imports the same way it does locally).
 
 Deploy with:
@@ -25,7 +25,7 @@ ENGINE_VERSION = "v2-reiteration"
 
 # Pinned commit SHAs — keep these in sync with the local checkouts you
 # develop against to avoid trace/spec drift. The CO rule pack uses the
-# `reiteration` rule kind, which axiom-rules only supports starting at
+# `reiteration` rule kind, which axiom-rules-engine only supports starting at
 # 21554e75; older SHAs (the v1 pin at 9106f44) reject the program.
 AXIOM_RULES_SHA = "21554e75196c8fcb0314d600ede6ab1145813e1a"
 RULES_US_SHA = "3aca0f3bee0eb128e3d091b02734ab5ebea527fc"
@@ -51,14 +51,14 @@ image = (
         f"echo 'engine: {ENGINE_VERSION}'",
         # Rule packs cloned at pinned SHAs. The compute service walks
         # these directly (registry.py / graph.py read YAML from disk).
-        "git clone https://github.com/TheAxiomFoundation/axiom-rules.git /opt/axiom-rules",
-        f"cd /opt/axiom-rules && git checkout {AXIOM_RULES_SHA}",
-        "git clone https://github.com/TheAxiomFoundation/rules-us.git /opt/rules-us",
-        f"cd /opt/rules-us && git checkout {RULES_US_SHA}",
-        "git clone https://github.com/TheAxiomFoundation/rules-us-co.git /opt/rules-us-co",
-        f"cd /opt/rules-us-co && git checkout {RULES_US_CO_SHA}",
+        "git clone https://github.com/TheAxiomFoundation/axiom-rules-engine.git /opt/axiom-rules-engine",
+        f"cd /opt/axiom-rules-engine && git checkout {AXIOM_RULES_SHA}",
+        "git clone https://github.com/TheAxiomFoundation/rulespec-us.git /opt/rulespec-us",
+        f"cd /opt/rulespec-us && git checkout {RULES_US_SHA}",
+        "git clone https://github.com/TheAxiomFoundation/rulespec-us-co.git /opt/rulespec-us-co",
+        f"cd /opt/rulespec-us-co && git checkout {RULES_US_CO_SHA}",
         # Build the Rust engine. Release build for runtime perf.
-        ". $HOME/.cargo/env && cd /opt/axiom-rules && cargo build --release",
+        ". $HOME/.cargo/env && cd /opt/axiom-rules-engine && cargo build --release",
     )
     .pip_install(
         "fastapi>=0.109",
@@ -69,11 +69,11 @@ image = (
     )
     .env(
         {
-            # engine.py reads this to invoke axiom-rules; if unset the service
+            # engine.py reads this to invoke axiom-rules-engine; if unset the service
             # silently degrades to demo mode.
-            "AXIOM_RULES_BIN": "/opt/axiom-rules/target/release/axiom-rules",
-            # registry.py uses this as the parent dir to resolve `rules-*` clones.
-            "AXIOM_RULES_ROOT": "/opt",
+            "AXIOM_RULES_ENGINE_BIN": "/opt/axiom-rules-engine/target/release/axiom-rules-engine",
+            # registry.py uses this as the parent dir to resolve `rulespec-*` clones.
+            "AXIOM_RULESPEC_ROOT": "/opt",
             # CORS for the Vercel-hosted builder. Tighten to a specific origin
             # if/when the project graduates beyond demo use.
             "ALLOW_ORIGINS": "*",

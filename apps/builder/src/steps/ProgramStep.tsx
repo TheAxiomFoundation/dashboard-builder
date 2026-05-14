@@ -70,7 +70,7 @@ export interface RecommendedInput {
 
 const CURATED_PROGRAMS: CuratedProgram[] = [
   {
-    repo: "rules-us-co",
+    repo: "rulespec-us-co",
     path: "policies/cdhs/snap/fy-2026-benefit-calculation.yaml",
     label: "Colorado SNAP",
     labelPrefix: "snap",

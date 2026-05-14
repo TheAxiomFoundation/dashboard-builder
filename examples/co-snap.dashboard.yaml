@@ -18,7 +18,7 @@ meta:
   theme: "axiom"
 
 program:
-  repo: "rules-us-co"
+  repo: "rulespec-us-co"
   path: "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
   displayName: "Colorado SNAP — FY 2026 benefit calculation"
 

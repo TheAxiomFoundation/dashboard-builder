@@ -27,7 +27,7 @@ export type OutputLegalId = string;
 
 /**
  * The repo + path that resolves to a RuleSpec program YAML. `repo` matches a
- * folder under TheAxiomFoundation (e.g. `rules-us-co`); `path` is repo-relative
+ * folder under TheAxiomFoundation (e.g. `rulespec-us-co`); `path` is repo-relative
  * (e.g. `policies/cdhs/snap/fy-2026-benefit-calculation.yaml`).
  */
 export interface ProgramRef {

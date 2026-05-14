@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-# Auto-load `.env` so `uvicorn main:app` picks up AXIOM_RULES_BIN and friends
+# Auto-load `.env` so `uvicorn main:app` picks up AXIOM_RULES_ENGINE_BIN and friends
 # without needing the operator to remember to export them.
 try:
     from dotenv import load_dotenv  # type: ignore

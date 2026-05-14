@@ -25,23 +25,23 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
     """Guard the configured real engine against rule-pack schema drift.
 
     These tests are intentionally skipped when the real engine is not installed.
-    If `AXIOM_RULES_BIN` is configured, they fail on the errors that make the
-    compute API fall back to test fixtures, including unsupported RuleSpec
-    variants and unresolved `rulespec-*` imports.
+    If `AXIOM_RULES_ENGINE_BIN` is configured, they fail on the errors that
+    make the compute API fall back to test fixtures, including unsupported
+    RuleSpec variants and unresolved `rulespec-*` imports.
     """
 
     def setUp(self) -> None:
         self.compute_root = COMPUTE_ROOT
         load_dotenv(self.compute_root / ".env")
 
-        binary = os.environ.get("AXIOM_RULES_BIN")
+        binary = os.environ.get("AXIOM_RULES_ENGINE_BIN")
         if not binary:
-            self.skipTest("AXIOM_RULES_BIN is not configured")
+            self.skipTest("AXIOM_RULES_ENGINE_BIN is not configured")
         self.binary = Path(binary).expanduser().resolve()
         if not self.binary.exists():
-            self.skipTest(f"AXIOM_RULES_BIN does not exist: {self.binary}")
+            self.skipTest(f"AXIOM_RULES_ENGINE_BIN does not exist: {self.binary}")
 
-        root = Path(os.environ.get("AXIOM_RULES_ROOT", self.compute_root.parents[1]))
+        root = Path(os.environ.get("AXIOM_RULESPEC_ROOT", self.compute_root.parents[1]))
         self.rules_root = root.expanduser().resolve()
         self.program_yaml = self.rules_root / SNAP_PROGRAM
         if not self.program_yaml.exists():
@@ -64,8 +64,8 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
             import_roots.append(existing_roots)
         self.engine_env = {
             **os.environ,
-            "AXIOM_RULES_BIN": str(self.binary),
-            "AXIOM_RULES_ROOT": str(self.rules_root),
+            "AXIOM_RULES_ENGINE_BIN": str(self.binary),
+            "AXIOM_RULESPEC_ROOT": str(self.rules_root),
             "AXIOM_RULESPEC_REPO_ROOTS": os.pathsep.join(import_roots),
         }
 

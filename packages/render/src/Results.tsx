@@ -68,7 +68,7 @@ export function Results({
         {mode === "demo" && (
           <span
             className="info-pill"
-            title="Set AXIOM_RULES_BIN and install the axiom_rules Python package for live computation. See compute/README.md."
+            title="Set AXIOM_RULES_ENGINE_BIN and install the axiom_rules_engine Python package for live computation. See compute/README.md."
           >
             Test-fixture values · engine not connected
           </span>
