@@ -3,19 +3,20 @@ import type { Draft, InputExposure, RelationExposure } from "../draft";
 import {
   applyRecommendedSetup,
   clearRecommendedSetup,
+  defaultFor,
   dtypeFor,
   exposeInput,
   exposeRelation,
   humanize,
   humanizeWithoutPrefix,
   widgetFor,
-  defaultFor,
 } from "../draft";
 import type { InputGraphNode, RelationGraphNode, SensitivityResult } from "../api";
 import { fetchTransitive } from "../api";
 import { humanizeCitation } from "../citations";
 import { curatedForDraft } from "./ProgramStep";
-import { GuidedQA } from "./GuidedQA";
+
+const CORE_QUESTION_LIMIT = 10;
 
 interface Props {
   draft: Draft;
@@ -25,14 +26,16 @@ interface Props {
    * auto-suggest banner. */
   sensitivity?: SensitivityResult | null;
   sensitivityStatus?: "idle" | "loading" | "ready" | "error";
-  /** Sub-stage within Step III. Default flow walks
-   * "defaults" → "household" → "income" → "housing" → "resources".
-   * "defaults" asks whether to use the suggested starter questions;
-   * "advanced" reveals the legacy picker for power-user customization. */
-  stage?: "defaults" | "household" | "income" | "housing" | "resources" | "advanced";
-  /** Accept the default questions and start the guided Q&A. */
-  onAcceptDefaults?: () => void;
-  /** Open the legacy picker (advanced view). */
+  /** Sub-stage within Step III. The guided path helps the builder
+   * choose the question set before thinking about default/example
+   * values. "advanced" is kept as an alias for the full browser. */
+  stage?:
+    | "depth"
+    | "sections"
+    | "browse"
+    | "defaults"
+    | "advanced";
+  /** Open the full available-question browser. */
   onOpenAdvanced?: () => void;
 }
 
@@ -58,40 +61,477 @@ export function InputStep({
   setDraft,
   sensitivity,
   sensitivityStatus,
-  stage = "advanced",
-  onAcceptDefaults,
+  stage = "browse",
   onOpenAdvanced,
 }: Props) {
   // Thin dispatcher: each branch is its own component so React's
   // hook-order rules hold (the advanced picker owns a dozen useState/
   // useMemo/useEffect calls that would otherwise be conditional). The
   // sub-components are defined below in the same file.
-  if (stage === "defaults") {
+  if (stage === "depth") {
     return (
-      <DefaultInputsReview
-        draft={draft}
-        onAccept={() => onAcceptDefaults?.()}
-        onCustomize={() => onOpenAdvanced?.()}
-      />
-    );
-  }
-  if (stage !== "advanced") {
-    return (
-      <GuidedQA
+      <QuestionDepthStep
         draft={draft}
         setDraft={setDraft}
-        stage={stage}
+        sensitivity={sensitivity}
+        sensitivityStatus={sensitivityStatus}
         onOpenAdvanced={() => onOpenAdvanced?.()}
       />
     );
+  }
+  if (stage === "sections") {
+    return (
+      <FormSectionsStep
+        draft={draft}
+        setDraft={setDraft}
+        sensitivity={sensitivity}
+        onOpenAdvanced={() => onOpenAdvanced?.()}
+      />
+    );
+  }
+  if (stage === "defaults") {
+    return <StartingValuesStep draft={draft} setDraft={setDraft} />;
   }
   return (
     <AdvancedInputPicker
       draft={draft}
       setDraft={setDraft}
       sensitivity={sensitivity}
-      sensitivityStatus={sensitivityStatus}
     />
+  );
+}
+
+function QuestionDepthStep({
+  draft,
+  setDraft,
+  sensitivity,
+  sensitivityStatus,
+  onOpenAdvanced,
+}: {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+  sensitivity?: SensitivityResult | null;
+  sensitivityStatus?: "idle" | "loading" | "ready" | "error";
+  onOpenAdvanced: () => void;
+}) {
+  const curated = curatedForDraft(draft.program);
+  const analyzedCoreQuestions = useMemo(() => {
+    return selectCoreQuestions(draft, sensitivity, CORE_QUESTION_LIMIT);
+  }, [draft.graph, sensitivity]);
+  const preloadedCoreQuestions = useMemo(
+    () => selectedQuestionsFromDraft(draft, CORE_QUESTION_LIMIT),
+    [draft.graph, draft.inputs, draft.relations],
+  );
+  const coreQuestions =
+    analyzedCoreQuestions.length > 0
+      ? analyzedCoreQuestions
+      : preloadedCoreQuestions;
+  const coreQuestionCount = coreQuestions.length;
+  const hasPreloadedQuestions = preloadedCoreQuestions.length > 0;
+  const showBlockingAnalysis =
+    sensitivityStatus === "loading" && !hasPreloadedQuestions;
+
+  function applyCoreQuestions() {
+    if (!draft.graph || coreQuestions.length === 0) return;
+    const curatedById = curatedInputDefaultsById(draft);
+    setDraft(
+      applyRecommendedSetup(
+        clearRecommendedSetup(draft),
+        draft.graph,
+        coreQuestions.map((input) => ({
+          legalId: input.legalId,
+          label: curatedById.get(input.legalId)?.label,
+          default: curatedById.get(input.legalId)?.default,
+        })),
+        curated?.recommendedMemberCount ?? 3,
+      ),
+    );
+  }
+
+  return (
+    <div className="step-body input-guide-step">
+      <div className="input-guide-kicker">
+        Start with the core questions for the selected results, or build a
+        custom form from the full rule-pack catalog.
+      </div>
+
+      {showBlockingAnalysis && (
+        <div className="analysis-loading-card" role="status" aria-live="polite">
+          <span className="analysis-spinner" aria-hidden />
+          <span className="analysis-loading-text">
+            Analyzing the computation tree for the selected results…
+          </span>
+        </div>
+      )}
+
+      {sensitivityStatus === "error" && (
+        <div className="input-guide-note">
+          The computation-tree analysis did not finish. Use custom questions
+          while we inspect the engine result.
+        </div>
+      )}
+
+      <div className="output-headline-cards input-depth-cards">
+        <button
+          type="button"
+          className={`output-headline-card ${coreQuestions.length > 0 && selectedMatchesIds(draft, coreQuestions.map((q) => q.legalId)) ? "is-selected" : ""}`}
+          onClick={applyCoreQuestions}
+          disabled={coreQuestions.length === 0}
+        >
+          <span className="output-headline-card-title">Core questions</span>
+          <span className="output-headline-card-source">
+            Use the questions confirmed to change the selected result in engine
+            testing.
+          </span>
+          <span className="output-headline-card-state">
+            {showBlockingAnalysis
+              ? "Analyzing…"
+              : `${coreQuestionCount} question${coreQuestionCount === 1 ? "" : "s"}`}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className="output-headline-card output-headline-card-custom"
+          onClick={onOpenAdvanced}
+        >
+          <span className="output-headline-card-title">Custom questions</span>
+          <span className="output-headline-card-source">
+            Browse the full computation tree and decide exactly which inputs to
+            ask.
+          </span>
+          <span className="output-headline-card-state">
+            Open question picker →
+          </span>
+        </button>
+      </div>
+
+      {sensitivityStatus !== "loading" && sensitivityStatus !== "error" && coreQuestions.length === 0 && (
+        <div className="input-guide-note">
+          {sensitivity
+            ? "The analysis did not return core questions for this output. Use custom questions while we inspect the computation tree."
+            : "Waiting for sensitivity analysis before recommending core questions."}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FormSectionsStep({
+  draft,
+  setDraft,
+  sensitivity,
+  onOpenAdvanced,
+}: {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+  sensitivity?: SensitivityResult | null;
+  onOpenAdvanced: () => void;
+}) {
+  const sections = formSections(draft, sensitivity);
+
+  return (
+    <div className="step-body input-guide-step">
+      <div className="form-section-grid">
+        {sections.map((section) => (
+          <button
+            key={section.key}
+            type="button"
+            className={`form-section-card ${section.selectedCount > 0 ? "is-selected" : ""}`}
+            onClick={() =>
+              setDraft(
+                section.selectedCount > 0
+                  ? removeQuestions(draft, section.selectedIds)
+                  : addRecommendedQuestions(draft, section.recommendedIds),
+              )
+            }
+          >
+            <span className="form-section-card-head">
+              <span className="form-section-card-title">{section.label}</span>
+              <span className="form-section-card-count">
+                <strong>{section.selectedCount}</strong>
+                <span>selected</span>
+              </span>
+            </span>
+            <span className="form-section-card-copy">{section.copy}</span>
+            {section.selectedLabels.length > 0 ? (
+              <span className="form-section-card-selected-list">
+                {section.selectedLabels.slice(0, 4).map((label) => (
+                  <span key={label} className="form-section-card-question">
+                    {label}
+                  </span>
+                ))}
+                {section.selectedLabels.length > 4 && (
+                  <span className="form-section-card-more">
+                    +{section.selectedLabels.length - 4} more selected
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className="form-section-card-meta">{section.tradeoff}</span>
+            )}
+            <span className="form-section-card-catalog">
+              {section.availableCount} available in catalog
+            </span>
+            <span className="form-section-card-action">
+              {section.selectedCount > 0 ? "Remove selected" : "Add suggested"}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="input-guide-actions">
+        <button
+          type="button"
+          className="setup-notice-action is-primary"
+          onClick={onOpenAdvanced}
+        >
+          Browse available questions
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SkippedAssumptionsStep({
+  draft,
+  sensitivity,
+  onOpenAdvanced,
+}: {
+  draft: Draft;
+  sensitivity?: SensitivityResult | null;
+  onOpenAdvanced: () => void;
+}) {
+  const selected = selectedQuestionIds(draft);
+  const skippedByCategory = useMemo(() => {
+    if (!draft.graph) return [];
+    const cats = new Map<
+      string,
+      { key: string; label: string; order: number; count: number; examples: string[] }
+    >();
+    for (const node of draft.graph.inputs) {
+      if (selected.has(node.legalId)) continue;
+      const c = categorizeInput(node.name, inferDtype(node));
+      const entry = cats.get(c.key) ?? { ...c, count: 0, examples: [] };
+      entry.count += 1;
+      if (entry.examples.length < 3) entry.examples.push(humanize(node.name));
+      cats.set(c.key, entry);
+    }
+    return [...cats.values()].sort(
+      (a, b) => a.order - b.order || a.label.localeCompare(b.label),
+    );
+  }, [draft.graph, selected]);
+
+  const noEffectCount = sensitivity?.no_effect.length ?? 0;
+  const defaultedCount = skippedByCategory.reduce((sum, c) => sum + c.count, 0);
+
+  return (
+    <div className="step-body input-guide-step">
+      <div className="input-guide-kicker">
+        Most rule inputs are internal details, not client-facing form fields.
+        This screen shows the categories that will stay behind the scenes
+        unless you decide to add more detail.
+      </div>
+
+      <div className="input-assumption-grid">
+        <div className="input-assumption-stat">
+          <span className="input-defaults-count">{selected.size}</span>
+          <span className="input-defaults-label">client questions</span>
+        </div>
+        <div className="input-assumption-stat">
+          <span className="input-defaults-count">{skippedByCategory.length}</span>
+          <span className="input-defaults-label">default categories</span>
+        </div>
+      </div>
+
+      {noEffectCount > 0 && (
+        <div className="setup-notice setup-notice-prompt">
+          <span className="setup-notice-text">
+            {noEffectCount} tested question{noEffectCount === 1 ? "" : "s"} did
+            not move the selected result with the current defaults.
+          </span>
+        </div>
+      )}
+
+      <div className="setup-notice setup-notice-prompt">
+        <span className="setup-notice-text">
+          {defaultedCount} available rule inputs are staying out of the form.
+          They are still handled by defaults or rule-pack assumptions.
+        </span>
+      </div>
+
+      <div className="input-assumption-cards">
+        {skippedByCategory.map((cat) => (
+          <section key={cat.key} className="input-assumption-card">
+            <header className="input-review-group-head">
+              <span className="input-review-group-title">{cat.label}</span>
+              <span className="input-defaults-group-meta">
+                {cat.count} defaulted
+              </span>
+            </header>
+            <div className="input-assumption-examples" aria-label={`Examples in ${cat.label}`}>
+              {cat.examples.map((example) => (
+                <span key={example} className="input-assumption-chip">
+                  {example}
+                </span>
+              ))}
+              {cat.count > cat.examples.length && (
+                <span className="input-assumption-chip is-more">
+                  +{cat.count - cat.examples.length} more
+                </span>
+              )}
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <div className="input-guide-actions">
+        <button
+          type="button"
+          className="setup-notice-action"
+          onClick={onOpenAdvanced}
+        >
+          Add a skipped question
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StartingValuesStep({
+  draft,
+  setDraft,
+}: {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const total = questionCount(draft);
+
+  function applyBlankDefaults() {
+    if (!draft.graph) return;
+    setDraft(mapSelectedQuestionDefaults(draft, (input) => {
+      const node = draft.graph!.inputs.find((i) => i.legalId === input.legalId);
+      return node ? defaultFor(node, input.dtype) : input.default;
+    }));
+    setEditing(false);
+  }
+
+  function patchInputDefault(legalId: string, value: string | number | boolean) {
+    setDraft({
+      ...draft,
+      inputs: draft.inputs.map((i) =>
+        i.legalId === legalId ? { ...i, default: value } : i,
+      ),
+      relations: draft.relations.map((r) => ({
+        ...r,
+        memberInputs: r.memberInputs.map((m) =>
+          m.legalId === legalId ? { ...m, default: value } : m,
+        ),
+      })),
+    });
+  }
+
+  return (
+    <div className="step-body input-guide-step">
+      <div className="input-guide-kicker">
+        Starting values control what the deployed calculator shows before a
+        user changes anything. They do not change which questions appear.
+      </div>
+
+      <div className="output-headline-cards">
+        <button
+          type="button"
+          className={`output-headline-card output-headline-card-decide ${!editing ? "is-selected" : ""}`}
+          onClick={applyBlankDefaults}
+        >
+          <span className="output-headline-card-title">Blank form</span>
+          <span className="output-headline-card-source">
+            Start most numeric fields at zero, booleans off, and dates at the
+            period start.
+          </span>
+          <span className="output-headline-card-state">
+            {!editing ? "Selected" : "Select blank"}
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`output-headline-card output-headline-card-custom ${editing ? "is-selected" : ""}`}
+          onClick={() => setEditing(true)}
+        >
+          <span className="output-headline-card-title">Custom starting values</span>
+          <span className="output-headline-card-source">
+            Edit the defaults for the {total} selected question
+            {total === 1 ? "" : "s"} directly.
+          </span>
+          <span className="output-headline-card-state">
+            {editing ? "Selected" : "Edit defaults →"}
+          </span>
+        </button>
+      </div>
+
+      {editing && (
+        <div className="input-values-editor">
+          {draft.inputs.map((input) => (
+            <DefaultValueField
+              key={input.legalId}
+              input={input}
+              onChange={(value) => patchInputDefault(input.legalId, value)}
+            />
+          ))}
+          {draft.relations.map((rel) => (
+            <section key={rel.legalId} className="input-values-relation">
+              <header className="input-review-group-head">
+                <span className="input-review-group-title">{rel.label}</span>
+                <span className="input-defaults-group-meta">
+                  per-member defaults
+                </span>
+              </header>
+              {rel.memberInputs.map((input) => (
+                <DefaultValueField
+                  key={input.legalId}
+                  input={input}
+                  onChange={(value) => patchInputDefault(input.legalId, value)}
+                />
+              ))}
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DefaultValueField({
+  input,
+  onChange,
+}: {
+  input: InputExposure;
+  onChange: (value: string | number | boolean) => void;
+}) {
+  if (input.dtype === "boolean") {
+    return (
+      <label className="input-value-field input-value-field-checkbox">
+        <input
+          type="checkbox"
+          checked={Boolean(input.default)}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span>{input.label}</span>
+      </label>
+    );
+  }
+
+  const type = input.dtype === "date" ? "date" : input.dtype === "string" ? "text" : "number";
+  return (
+    <label className="input-value-field">
+      <span>{input.label}</span>
+      <input
+        type={type}
+        value={String(input.default)}
+        onChange={(e) => onChange(parseDefault(input.dtype, e.target.value))}
+      />
+    </label>
   );
 }
 
@@ -99,14 +539,12 @@ interface AdvancedProps {
   draft: Draft;
   setDraft: (d: Draft) => void;
   sensitivity?: SensitivityResult | null;
-  sensitivityStatus?: "idle" | "loading" | "ready" | "error";
 }
 
 function AdvancedInputPicker({
   draft,
   setDraft,
   sensitivity,
-  sensitivityStatus,
 }: AdvancedProps) {
   const [inputDeps, setInputDeps] = useState<Record<string, number>>({});
   const [relationDeps, setRelationDeps] = useState<Record<string, number>>({});
@@ -480,13 +918,6 @@ function AdvancedInputPicker({
         </section>
       )}
 
-      <RecommendedSetupNotice
-        draft={draft}
-        setDraft={setDraft}
-        sensitivity={sensitivity}
-        sensitivityStatus={sensitivityStatus}
-      />
-
       {/* Hide the search bar entirely once every reachable input is
           exposed — nothing left to find. */}
       {availableInputCatalog.length + availableRelationCatalog.length > 0 && (
@@ -706,261 +1137,6 @@ function AdvancedInputPicker({
   );
 }
 
-function DefaultInputsReview({
-  draft,
-  onAccept,
-  onCustomize,
-}: {
-  draft: Draft;
-  onAccept: () => void;
-  onCustomize: () => void;
-}) {
-  const scalarCount = draft.inputs.length;
-  const memberInputCount = draft.relations.reduce(
-    (n, rel) => n + rel.memberInputs.length,
-    0,
-  );
-  const total = scalarCount + memberInputCount;
-
-  return (
-    <div className="step-body input-defaults-step">
-      <p className="input-defaults-prompt">
-        These are the questions the calculator will ask by default. Use them
-        as the starting form, or customize the question set first.
-      </p>
-
-      {total === 0 ? (
-        <div className="input-defaults-empty">
-          No default questions are selected for this output set yet.
-        </div>
-      ) : (
-        <div className="input-defaults-panel">
-          <div className="input-defaults-summary">
-            <span className="input-defaults-count">{total}</span>
-            <span className="input-defaults-label">
-              default question{total === 1 ? "" : "s"}
-            </span>
-          </div>
-
-          <div className="input-defaults-list">
-            {draft.relations.map((rel) => (
-              <section key={rel.legalId} className="input-defaults-group">
-                <div className="input-defaults-group-head">
-                  <span className="input-defaults-group-title">{rel.label}</span>
-                  <span className="input-defaults-group-meta">
-                    {rel.minCount} member{rel.minCount === 1 ? "" : "s"} ·{" "}
-                    {rel.memberInputs.length} per-member question
-                    {rel.memberInputs.length === 1 ? "" : "s"}
-                  </span>
-                </div>
-                {rel.memberInputs.length > 0 && (
-                  <div className="input-defaults-chips">
-                    {rel.memberInputs.map((input) => (
-                      <span key={input.legalId} className="input-defaults-chip">
-                        {input.label}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </section>
-            ))}
-
-            {draft.inputs.length > 0 && (
-              <section className="input-defaults-group">
-                <div className="input-defaults-group-head">
-                  <span className="input-defaults-group-title">
-                    Household questions
-                  </span>
-                  <span className="input-defaults-group-meta">
-                    {draft.inputs.length} question
-                    {draft.inputs.length === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <div className="input-defaults-chips">
-                  {draft.inputs.map((input) => (
-                    <span key={input.legalId} className="input-defaults-chip">
-                      {input.label}
-                    </span>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="output-headline-cards">
-        <button
-          type="button"
-          className="output-headline-card output-headline-card-decide"
-          onClick={onAccept}
-        >
-          <span className="output-headline-card-title">
-            Use these questions
-          </span>
-          <span className="output-headline-card-source">
-            Walk through a guided Q&A — household, income, housing,
-            resources — answering each as a sample case so the calculator
-            comes pre-filled with realistic defaults.
-          </span>
-          <span className="output-headline-card-state">
-            Start the guided setup →
-          </span>
-        </button>
-        <button
-          type="button"
-          className="output-headline-card output-headline-card-decide"
-          onClick={onCustomize}
-        >
-          <span className="output-headline-card-title">
-            Customize first
-          </span>
-          <span className="output-headline-card-source">
-            Edit which questions appear, rename labels, swap widgets, or
-            add inputs the defaults missed. You can still run the guided
-            setup afterwards.
-          </span>
-          <span className="output-headline-card-state">
-            Open the full picker →
-          </span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Top-of-step banner for the curated program's recommended starter
- * inputs. Two states:
- *   - applied (`usedRecommendedSetup`): show "Started with the
- *     recommended setup · Reset to blank" so the user can undo.
- *   - not applied + nothing exposed yet + curated set exists: show
- *     "Most CO SNAP calculators ask these N questions · Use them"
- *     so the user can opt in after the fact.
- */
-function RecommendedSetupNotice({
-  draft,
-  setDraft,
-  sensitivity,
-  sensitivityStatus,
-}: {
-  draft: Draft;
-  setDraft: (d: Draft) => void;
-  sensitivity?: SensitivityResult | null;
-  sensitivityStatus?: "idle" | "loading" | "ready" | "error";
-}) {
-  const curated = curatedForDraft(draft.program);
-  if (!draft.graph) return null;
-
-  const exposedCount =
-    draft.inputs.length +
-    draft.relations.reduce((n, r) => n + r.memberInputs.length, 0);
-
-  // Sensitivity-derived "load-bearing" list — every input that moves
-  // any picked output. Preferred over the hand-curated list because
-  // it's empirically true rather than guessed at.
-  const loadBearingIds = sensitivity
-    ? Array.from(
-        new Set(Object.values(sensitivity.load_bearing).flatMap((ids) => ids)),
-      )
-    : null;
-  const loadBearingRecommended = loadBearingIds
-    ? loadBearingIds.map((legalId) => ({ legalId }))
-    : null;
-
-  // Background analysis still running — note it so the user knows
-  // why they don't see badges yet.
-  if (sensitivityStatus === "loading" && exposedCount === 0 && !draft.usedRecommendedSetup) {
-    return (
-      <div className="setup-notice setup-notice-prompt">
-        <span className="setup-notice-dot is-spin" aria-hidden />
-        <span className="setup-notice-text">
-          Analyzing which questions actually move your picked results…
-        </span>
-      </div>
-    );
-  }
-
-  // After auto-apply (curated): if sensitivity is now ready and tells
-  // a different story, offer to swap to the empirically-correct set.
-  if (draft.usedRecommendedSetup) {
-    const swapAvailable =
-      loadBearingRecommended &&
-      loadBearingRecommended.length > 0 &&
-      sensitivityStatus === "ready";
-    return (
-      <div className="setup-notice">
-        <span className="setup-notice-dot" aria-hidden />
-        <span className="setup-notice-text">
-          {swapAvailable
-            ? `${loadBearingRecommended!.length} of these questions actually move your picked results.`
-            : `Started with the recommended setup. Edit anything below.`}
-        </span>
-        {swapAvailable && (
-          <button
-            type="button"
-            className="setup-notice-action"
-            onClick={() =>
-              setDraft(
-                applyRecommendedSetup(
-                  clearRecommendedSetup(draft),
-                  draft.graph!,
-                  loadBearingRecommended!,
-                  curated?.recommendedMemberCount ?? 3,
-                ),
-              )
-            }
-          >
-            Use only those
-          </button>
-        )}
-        <button
-          type="button"
-          className="setup-notice-action"
-          onClick={() => setDraft(clearRecommendedSetup(draft))}
-        >
-          Reset to blank
-        </button>
-      </div>
-    );
-  }
-
-  // Nothing exposed yet — offer the load-bearing set if sensitivity is
-  // ready, otherwise the hand-curated list.
-  if (exposedCount === 0) {
-    const recommended = loadBearingRecommended ?? curated?.recommendedInputs ?? [];
-    if (!recommended.length) return null;
-    const fromSensitivity = !!loadBearingRecommended;
-    return (
-      <div className="setup-notice setup-notice-prompt">
-        <span className="setup-notice-text">
-          {fromSensitivity
-            ? `${recommended.length} questions actually move your picked results.`
-            : `Most ${curated?.label ?? "calculators"} ask the same ${recommended.length} questions to start.`}
-        </span>
-        <button
-          type="button"
-          className="setup-notice-action is-primary"
-          onClick={() =>
-            setDraft(
-              applyRecommendedSetup(
-                draft,
-                draft.graph!,
-                recommended,
-                curated?.recommendedMemberCount ?? 3,
-              ),
-            )
-          }
-        >
-          Use them
-        </button>
-      </div>
-    );
-  }
-
-  return null;
-}
-
 function InputRow({
   node,
   depth,
@@ -1154,6 +1330,317 @@ function RelationRow({
       </span>
     </button>
   );
+}
+
+function selectedMatchesIds(draft: Draft, legalIds: string[]): boolean {
+  const selected = selectedQuestionIds(draft);
+  if (selected.size !== legalIds.length) return false;
+  return legalIds.every((id) => selected.has(id));
+}
+
+type FormSectionKey =
+  | "household"
+  | "income"
+  | "housing"
+  | "members"
+  | "resources"
+  | "special";
+
+const FORM_SECTION_DEFS: Array<{
+  key: FormSectionKey;
+  label: string;
+  copy: string;
+  tradeoff: string;
+}> = [
+  {
+    key: "household",
+    label: "Household",
+    copy: "Who is applying and how large the household is.",
+    tradeoff: "Essential for almost every SNAP workflow.",
+  },
+  {
+    key: "income",
+    label: "Income",
+    copy: "What the household earns or receives each month.",
+    tradeoff: "Usually needed for eligibility, verification, and amount estimates.",
+  },
+  {
+    key: "housing",
+    label: "Housing and utilities",
+    copy: "Rent, mortgage, shelter costs, and utility responsibility.",
+    tradeoff: "Adds a few questions and can improve benefit amount accuracy.",
+  },
+  {
+    key: "members",
+    label: "Member details",
+    copy: "Age, citizenship, disability, and other per-person facts.",
+    tradeoff: "Adds repeating questions, but supports more precise screening.",
+  },
+  {
+    key: "resources",
+    label: "Resources and assets",
+    copy: "Assets, limits, values, and resource-related rules.",
+    tradeoff: "Often optional for a quick screen; useful for edge cases.",
+  },
+  {
+    key: "special",
+    label: "Special situations",
+    copy: "Disqualifications, student/work situations, and other exceptions.",
+    tradeoff: "Best when the form is for detailed application support.",
+  },
+];
+
+function formSections(
+  draft: Draft,
+  sensitivity?: SensitivityResult | null,
+): Array<{
+  key: FormSectionKey;
+  label: string;
+  copy: string;
+  tradeoff: string;
+  availableCount: number;
+  selectedCount: number;
+  selectedIds: string[];
+  selectedLabels: string[];
+  recommendedIds: string[];
+}> {
+  const graphInputs = draft.graph?.inputs ?? [];
+  const selected = selectedQuestionIds(draft);
+  const curated = curatedForDraft(draft.program);
+  const graphIds = new Set(graphInputs.map((i) => i.legalId));
+  const sensitivityIds = new Set(
+    sensitivity ? Object.values(sensitivity.load_bearing).flat() : [],
+  );
+
+  return FORM_SECTION_DEFS.map((def) => {
+    const available = graphInputs.filter(
+      (input) => sectionForInput(input.name) === def.key,
+    );
+    const availableIds = available.map((input) => input.legalId);
+    const selectedIds = availableIds.filter((id) => selected.has(id));
+    const selectedLabels = available
+      .filter((input) => selected.has(input.legalId))
+      .map((input) => selectedLabelForDraft(draft, input));
+
+    const curatedIds =
+      curated?.recommendedInputs
+        ?.filter(
+          (rec) =>
+            graphIds.has(rec.legalId) &&
+            sectionForInput(nameFromLegalId(rec.legalId)) === def.key,
+        )
+        .map((rec) => rec.legalId) ?? [];
+    const loadBearingIds = availableIds.filter((id) => sensitivityIds.has(id));
+    const fallbackIds = available
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 3)
+      .map((input) => input.legalId);
+
+    const recommendedIds = uniqueIds([
+      ...curatedIds,
+      ...loadBearingIds,
+      ...(curatedIds.length || loadBearingIds.length ? [] : fallbackIds),
+    ]);
+
+    return {
+      ...def,
+      availableCount: availableIds.length,
+      selectedCount: selectedIds.length,
+      selectedIds,
+      selectedLabels,
+      recommendedIds,
+    };
+  });
+}
+
+function selectedLabelForDraft(draft: Draft, input: InputGraphNode): string {
+  const scalar = draft.inputs.find((i) => i.legalId === input.legalId);
+  if (scalar) return scalar.label;
+  const member = draft.relations
+    .flatMap((rel) => rel.memberInputs)
+    .find((i) => i.legalId === input.legalId);
+  return member?.label ?? humanize(input.name);
+}
+
+function sectionForInput(name: string): FormSectionKey {
+  const n = name.toLowerCase();
+  if (/income|earnings|earned|wages|pay\b|amount\b/.test(n)) return "income";
+  if (
+    /shelter|rent|mortgage|utility|heating|cooling|electric|medical|expense|deduction|cost/.test(
+      n,
+    )
+  ) return "housing";
+  if (
+    /member|age|citizen|elderly|disabled|disability|student|immigration|pregnant|veteran|dependent/.test(
+      n,
+    )
+  ) return "members";
+  if (/resource|asset|vehicle|limit\b|threshold|lump_sum|value\b/.test(n)) {
+    return "resources";
+  }
+  if (
+    /eligible|qualif|disqualif|sanction|work|employment|excluded|exempt|verification|verified/.test(
+      n,
+    )
+  ) return "special";
+  return "household";
+}
+
+function addRecommendedQuestions(draft: Draft, legalIds: string[]): Draft {
+  if (!draft.graph || legalIds.length === 0) return draft;
+  const curated = curatedForDraft(draft.program);
+  const curatedById = curatedInputDefaultsById(draft);
+  const recommended = uniqueIds(legalIds).map((legalId) => ({
+    legalId,
+    label: curatedById.get(legalId)?.label,
+    default: curatedById.get(legalId)?.default,
+  }));
+  return applyRecommendedSetup(
+    draft,
+    draft.graph,
+    recommended,
+    curated?.recommendedMemberCount ?? 3,
+  );
+}
+
+function curatedInputDefaultsById(draft: Draft) {
+  const curated = curatedForDraft(draft.program);
+  return new Map(
+    [
+      ...(curated?.recommendedInputs ?? []),
+      ...(curated?.inputDefaults ?? []),
+    ].map((rec) => [rec.legalId, rec] as const),
+  );
+}
+
+function selectCoreQuestions(
+  draft: Draft,
+  sensitivity: SensitivityResult | null | undefined,
+  limit: number,
+): InputGraphNode[] {
+  if (!draft.graph || !sensitivity) return [];
+  const ids = new Set(Object.values(sensitivity.load_bearing).flat());
+  const inputsById = new Map(
+    draft.graph.inputs.map((input) => [input.legalId, input] as const),
+  );
+  const curated = curatedForDraft(draft.program);
+  const curatedOrder = new Map(
+    (curated?.recommendedInputs ?? []).map((rec, index) => [
+      rec.legalId,
+      index,
+    ] as const),
+  );
+  const defaultOrder = new Map(
+    (curated?.inputDefaults ?? []).map((rec, index) => [
+      rec.legalId,
+      index,
+    ] as const),
+  );
+  const outputCountByInput = new Map<string, number>();
+  for (const [outputId, inputIds] of Object.entries(sensitivity.load_bearing)) {
+    for (const inputId of inputIds) {
+      outputCountByInput.set(
+        inputId,
+        (outputCountByInput.get(inputId) ?? 0) + (outputId ? 1 : 0),
+      );
+    }
+  }
+
+  return [...ids]
+    .map((legalId) => inputsById.get(legalId))
+    .filter((input): input is InputGraphNode => !!input)
+    .sort((a, b) => {
+      const curatedA = curatedOrder.get(a.legalId) ?? Number.POSITIVE_INFINITY;
+      const curatedB = curatedOrder.get(b.legalId) ?? Number.POSITIVE_INFINITY;
+      if (curatedA !== curatedB) return curatedA - curatedB;
+
+      const movedA = outputCountByInput.get(a.legalId) ?? 0;
+      const movedB = outputCountByInput.get(b.legalId) ?? 0;
+      if (movedA !== movedB) return movedB - movedA;
+
+      const defaultA = defaultOrder.get(a.legalId) ?? Number.POSITIVE_INFINITY;
+      const defaultB = defaultOrder.get(b.legalId) ?? Number.POSITIVE_INFINITY;
+      if (defaultA !== defaultB) return defaultA - defaultB;
+
+      const sectionA = sectionOrder(sectionForInput(a.name));
+      const sectionB = sectionOrder(sectionForInput(b.name));
+      if (sectionA !== sectionB) return sectionA - sectionB;
+
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, limit);
+}
+
+function selectedQuestionsFromDraft(draft: Draft, limit: number): InputGraphNode[] {
+  if (!draft.graph) return [];
+  const selected = selectedQuestionIds(draft);
+  const byId = new Map(draft.graph.inputs.map((input) => [input.legalId, input]));
+  return [...selected]
+    .map((legalId) => byId.get(legalId))
+    .filter((input): input is InputGraphNode => !!input)
+    .slice(0, limit);
+}
+
+function removeQuestions(draft: Draft, legalIds: string[]): Draft {
+  const remove = new Set(legalIds);
+  return {
+    ...draft,
+    inputs: draft.inputs.filter((i) => !remove.has(i.legalId)),
+    relations: draft.relations
+      .map((r) => ({
+        ...r,
+        memberInputs: r.memberInputs.filter((m) => !remove.has(m.legalId)),
+      }))
+      .filter((r) => r.memberInputs.length > 0),
+  };
+}
+
+function sectionOrder(key: FormSectionKey): number {
+  const index = FORM_SECTION_DEFS.findIndex((def) => def.key === key);
+  return index < 0 ? FORM_SECTION_DEFS.length : index;
+}
+
+function uniqueIds(ids: string[]): string[] {
+  return [...new Set(ids)];
+}
+
+function questionCount(draft: Draft): number {
+  return (
+    draft.inputs.length +
+    draft.relations.reduce((n, r) => n + r.memberInputs.length, 0)
+  );
+}
+
+function selectedQuestionIds(draft: Draft): Set<string> {
+  return new Set([
+    ...draft.inputs.map((i) => i.legalId),
+    ...draft.relations.flatMap((r) => r.memberInputs.map((m) => m.legalId)),
+  ]);
+}
+
+function mapSelectedQuestionDefaults(
+  draft: Draft,
+  pickDefault: (input: InputExposure) => string | number | boolean,
+): Draft {
+  return {
+    ...draft,
+    inputs: draft.inputs.map((input) => ({
+      ...input,
+      default: pickDefault(input),
+    })),
+    relations: draft.relations.map((rel) => ({
+      ...rel,
+      memberInputs: rel.memberInputs.map((input) => ({
+        ...input,
+        default: pickDefault(input),
+      })),
+    })),
+  };
+}
+
+function nameFromLegalId(legalId: string): string {
+  return legalId.split("#").pop()?.replace(/^input\./, "") ?? legalId;
 }
 
 /**

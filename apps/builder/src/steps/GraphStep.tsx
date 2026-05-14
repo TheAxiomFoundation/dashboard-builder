@@ -119,6 +119,15 @@ export function GraphStep({
     return { buckets, orphanedIntermediates };
   }, [draft]);
 
+  const questionGroups = useMemo(() => {
+    const groups = new Map<string, typeof draft.inputs>();
+    for (const input of draft.inputs) {
+      const label = reviewQuestionCategory(input.label);
+      groups.set(label, [...(groups.get(label) ?? []), input]);
+    }
+    return [...groups.entries()];
+  }, [draft.inputs]);
+
   if (!ready || !spec) {
     return (
       <div className="empty-hint">
@@ -157,6 +166,7 @@ export function GraphStep({
           <ReviewSection
             label="Picked results"
             count={draft.outputs.length}
+            countLabel={`${draft.outputs.length} result${draft.outputs.length === 1 ? "" : "s"}`}
             empty="No results picked yet."
           >
             {overview.buckets.map((b) => (
@@ -164,25 +174,29 @@ export function GraphStep({
                 key={b.main?.legalId ?? b.label}
                 className="review-subsection"
               >
-                <div className="review-subsection-label">{b.label}</div>
-                <ul className="review-list">
-                  {b.main && (
-                    <li className="review-item">
-                      <span className="review-item-label">{b.label}</span>
-                      <span className="review-item-tag is-main">main</span>
-                    </li>
-                  )}
-                  {b.intermediates.map((o) => (
-                    <li
-                      key={o.legalId}
-                      className="review-item review-item-indent"
-                    >
-                      <span className="review-item-label">
-                        {displayLabel(o.label, labelPrefix)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                {b.main && (
+                  <div className="review-result-card">
+                    <span className="review-result-title">{b.label}</span>
+                    <span className="review-item-tag is-main">Main result</span>
+                  </div>
+                )}
+                {b.intermediates.length > 0 && (
+                  <>
+                    <div className="review-subsection-label">Also shown</div>
+                    <ul className="review-list">
+                      {b.intermediates.map((o) => (
+                        <li
+                          key={o.legalId}
+                          className="review-item review-item-indent"
+                        >
+                          <span className="review-item-label">
+                            {displayLabel(o.label, labelPrefix)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
               </div>
             ))}
             {overview.orphanedIntermediates.length > 0 && (
@@ -209,20 +223,33 @@ export function GraphStep({
               draft.inputs.length +
               draft.relations.reduce((n, r) => n + r.memberInputs.length, 0)
             }
+            countLabel={`${
+              draft.inputs.length +
+              draft.relations.reduce((n, r) => n + r.memberInputs.length, 0)
+            } question${
+              draft.inputs.length +
+                draft.relations.reduce((n, r) => n + r.memberInputs.length, 0) ===
+              1
+                ? ""
+                : "s"
+            }`}
             empty="The user won't fill anything in — every value falls back to a default."
           >
-            {draft.inputs.length > 0 && (
-              <ul className="review-list">
-                {draft.inputs.map((inp) => (
-                  <li key={inp.legalId} className="review-item">
-                    <span className="review-item-label">
-                      {displayLabel(inp.label, labelPrefix)}
-                    </span>
-                    <span className="review-item-tag">{inp.dtype}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            {questionGroups.map(([label, inputs]) => (
+              <div key={label} className="review-subsection">
+                <div className="review-subsection-label">{label}</div>
+                <ul className="review-question-list">
+                  {inputs.map((inp) => (
+                    <li key={inp.legalId} className="review-question-item">
+                      <span className="review-item-label">
+                        {displayLabel(inp.label, labelPrefix)}
+                      </span>
+                      <span className="review-item-tag">{inp.dtype}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
             {draft.relations.map((rel) =>
               rel.memberInputs.length > 0 ? (
                 <div
@@ -232,9 +259,9 @@ export function GraphStep({
                   <div className="review-subsection-label">
                     {displayLabel(rel.label, labelPrefix)} · per member
                   </div>
-                  <ul className="review-list">
+                  <ul className="review-question-list">
                     {rel.memberInputs.map((m) => (
-                      <li key={m.legalId} className="review-item">
+                      <li key={m.legalId} className="review-question-item">
                         <span className="review-item-label">
                           {displayLabel(m.label, labelPrefix)}
                         </span>
@@ -270,16 +297,17 @@ export function GraphStep({
 interface ReviewSectionProps {
   label: string;
   count: number;
+  countLabel?: string;
   empty: string;
   children: React.ReactNode;
 }
-function ReviewSection({ label, count, empty, children }: ReviewSectionProps) {
+function ReviewSection({ label, count, countLabel, empty, children }: ReviewSectionProps) {
   return (
     <section className="review-section">
       <header className="review-section-head">
         <span className="review-section-label">{label}</span>
         <span className="review-section-count">
-          {count}
+          {countLabel ?? count}
         </span>
       </header>
       {count === 0 && empty ? (
@@ -291,3 +319,14 @@ function ReviewSection({ label, count, empty, children }: ReviewSectionProps) {
   );
 }
 
+function reviewQuestionCategory(label: string): string {
+  const l = label.toLowerCase();
+  if (/income|wage|earn|pay|salary|gross|monthly/.test(l)) return "Income";
+  if (/resource|asset|property|liquid|market|redemption|value/.test(l)) {
+    return "Resources";
+  }
+  if (/shelter|rent|mortgage|utility|expense|deduction|cost/.test(l)) {
+    return "Costs and deductions";
+  }
+  return "Household";
+}

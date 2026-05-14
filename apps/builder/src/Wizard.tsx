@@ -47,11 +47,11 @@ export const STEPS: StepDef[] = [
     ordinal: "II",
     index: 2,
     label: "Outputs",
-    title: <>What should it <em>show</em>?</>,
+    title: <>Choose the <em>result</em> the calculator should show</>,
     lede: (
       <>
-        Choose what your calculator will tell the user. Most calculators
-        have one or two main results — eligibility, benefit amount, etc.
+        Start with the result this workflow should produce: eligibility,
+        benefit amount, or a custom SNAP output.
       </>
     ),
     canContinue: (d) => d.outputs.length > 0,
@@ -90,7 +90,7 @@ export const STEPS: StepDef[] = [
     ordinal: "V",
     index: 5,
     label: "Preview",
-    title: <>Name and <em>export</em></>,
+    title: <>Preview</>,
     lede: (
       <>
         Try the calculator the way the end-user will see it, and grab the

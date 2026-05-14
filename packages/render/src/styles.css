@@ -95,7 +95,7 @@ body, html, #root {
 .dashboard-form {
   display: flex;
   flex-direction: column;
-  gap: 36px;
+  gap: 18px;
 }
 
 .dashboard.embedded .dashboard-form { gap: 22px; }
@@ -103,49 +103,63 @@ body, html, #root {
 .form-section {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  background: var(--color-paper-elevated);
+  box-shadow: 0 12px 30px -30px rgba(28, 25, 23, 0.5);
 }
 
 .form-section .section-title {
-  font-family: var(--f-mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--color-accent);
+  font-family: var(--f-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--color-ink);
   margin: 0;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--color-rule);
 }
 
 .dashboard.embedded .section-title {
-  font-size: 10px;
-  padding-bottom: 8px;
+  font-size: 16px;
 }
 
 .form-section .section-description {
-  font-family: var(--f-serif);
-  font-style: italic;
-  font-size: 14px;
+  font-size: 12.5px;
+  line-height: 1.45;
   color: var(--color-ink-muted);
-  margin: 0;
+  margin: -8px 0 2px;
 }
 
 .field-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 10px;
 }
 
-.dashboard.embedded .field-stack { gap: 14px; }
+.dashboard.embedded .field-stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
 
 /* ═══════════════════════════════════════════
    Field widgets — head + control
    ═══════════════════════════════════════════ */
 
 .field {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-rule-subtle);
+  border-radius: 5px;
+  background: var(--color-paper);
+}
+
+.dashboard.embedded .field {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
   gap: 8px;
 }
 
@@ -158,10 +172,11 @@ body, html, #root {
 }
 
 .field-head label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--color-ink);
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
+  line-height: 1.35;
 }
 
 .field-head .help {
@@ -242,8 +257,8 @@ body, html, #root {
   align-items: stretch;
   padding: 0;
   overflow: hidden;
-  width: max-content;
-  min-width: 160px;
+  width: 100%;
+  min-width: 0;
 }
 
 .control-stepper .stepper-btn {
@@ -294,6 +309,7 @@ body, html, #root {
   color: var(--color-ink);
   cursor: pointer;
   width: max-content;
+  justify-self: start;
 }
 
 .switch:focus-visible {
@@ -355,19 +371,30 @@ body, html, #root {
    ═══════════════════════════════════════════ */
 
 .relation-block {
-  display: flex;
-  flex-direction: column;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 12px;
 }
 
+.relation-block > .field-head,
+.relation-block > .btn {
+  grid-column: 1 / -1;
+}
+
+.dashboard.embedded .relation-block {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .member-card {
-  background: var(--color-rule-subtle);
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule-subtle);
   border-left: 2px solid var(--color-accent-line);
-  border-radius: 0 3px 3px 0;
-  padding: 18px;
+  border-radius: 5px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .member-card-header {
@@ -444,16 +471,42 @@ body, html, #root {
 
 .results {
   position: sticky;
-  top: 24px;
+  top: var(--dashboard-sticky-top, 24px);
   align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-height: calc(100vh - var(--dashboard-sticky-top, 24px) - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.dashboard.embedded .results {
+  position: sticky;
+  top: var(--dashboard-sticky-top, 16px);
+  gap: 18px;
+  max-height: calc(100vh - var(--dashboard-sticky-top, 16px) - 16px);
+}
+
+.results-summary {
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
-.dashboard.embedded .results {
-  position: static;
+.dashboard.embedded .results-summary {
   gap: 18px;
+}
+
+@media (max-width: 879px) {
+  .results,
+  .dashboard.embedded .results {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
 }
 
 /* ── Hero result ─────────────────────────── */

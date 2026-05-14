@@ -64,47 +64,49 @@ export function Results({
 
   return (
     <section className="results">
-      {mode === "demo" && (
-        <span
-          className="info-pill"
-          title="Set AXIOM_RULES_BIN and install the axiom_rules Python package for live computation. See compute/README.md."
-        >
-          Test-fixture values · engine not connected
-        </span>
-      )}
+      <div className="results-summary">
+        {mode === "demo" && (
+          <span
+            className="info-pill"
+            title="Set AXIOM_RULES_BIN and install the axiom_rules Python package for live computation. See compute/README.md."
+          >
+            Test-fixture values · engine not connected
+          </span>
+        )}
 
-      {showCoverage && coverage && <CoverageStrip coverage={coverage} />}
+        {showCoverage && coverage && <CoverageStrip coverage={coverage} />}
 
-      {realWarnings.map((w) => (
-        <div className="warning" key={w}>
-          {w}
-        </div>
-      ))}
+        {realWarnings.map((w) => (
+          <div className="warning" key={w}>
+            {w}
+          </div>
+        ))}
 
-      {hero && (
-        <Hero binding={hero} output={byLegalId.get(hero.legalId)} />
-      )}
+        {hero && (
+          <Hero binding={hero} output={byLegalId.get(hero.legalId)} />
+        )}
 
-      {(otherHeadlines.length > 0 || secondary.length > 0) && (
-        <div className="ledger">
-          {otherHeadlines.map((b) => (
-            <LedgerRow
-              key={b.id}
-              binding={b}
-              output={byLegalId.get(b.legalId)}
-              emphasis="strong"
-            />
-          ))}
-          {secondary.map((b) => (
-            <LedgerRow
-              key={b.id}
-              binding={b}
-              output={byLegalId.get(b.legalId)}
-              emphasis="muted"
-            />
-          ))}
-        </div>
-      )}
+        {(otherHeadlines.length > 0 || secondary.length > 0) && (
+          <div className="ledger">
+            {otherHeadlines.map((b) => (
+              <LedgerRow
+                key={b.id}
+                binding={b}
+                output={byLegalId.get(b.legalId)}
+                emphasis="strong"
+              />
+            ))}
+            {secondary.map((b) => (
+              <LedgerRow
+                key={b.id}
+                binding={b}
+                output={byLegalId.get(b.legalId)}
+                emphasis="muted"
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {tracedHeadlines.length > 0 && (
         <Explanation

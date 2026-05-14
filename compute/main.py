@@ -11,6 +11,8 @@ Endpoints:
 from __future__ import annotations
 
 import os
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +56,8 @@ app.add_middleware(
 
 _config = RegistryConfig.from_env()
 _mode: ComputeMode = detect_mode()
+_sensitivity_cache: dict[str, SensitivityResponseBody] = {}
+_SENSITIVITY_MAX_WORKERS = 8
 
 
 class HealthResponse(BaseModel):
@@ -257,6 +261,8 @@ class SensitivityResponseBody(BaseModel):
     baseline: list[dict[str, Any]]
     # output_legal_id → list of input_legal_ids that move that output.
     load_bearing: dict[str, list[str]]
+    # input_legal_id → perturbation evidence for each output it moved.
+    effects: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     # Inputs we tested but found no effect on any picked output.
     no_effect: list[str]
     # Inputs we couldn't perturb (date / string / unknown shape) or
@@ -312,6 +318,21 @@ def _pick_perturbation(name: str, sample: Any) -> Any | None:
     return None
 
 
+def _sensitivity_cache_key(body: SensitivityRequestBody, period: str) -> str:
+    return json.dumps(
+        {
+            "program": body.program,
+            "period": period,
+            "queried_outputs": sorted(body.queried_outputs),
+            "inputs": body.inputs,
+            "relations": body.relations,
+            "mode": _mode.name,
+        },
+        sort_keys=True,
+        default=str,
+    )
+
+
 @app.post("/sensitivity", response_model=SensitivityResponseBody)
 def sensitivity(body: SensitivityRequestBody) -> SensitivityResponseBody:
     repo = body.program.get("repo")
@@ -329,6 +350,9 @@ def sensitivity(body: SensitivityRequestBody) -> SensitivityResponseBody:
     period_obj = body.period or {}
     period_start = period_obj.get("start", "2026-01-01")
     period = period_start[:7]
+    cache_key = _sensitivity_cache_key(body, period)
+    if cached := _sensitivity_cache.get(cache_key):
+        return cached.model_copy(deep=True)
 
     # Build graph and find the transitive closure of inputs from the
     # picked outputs — no point perturbing inputs no rule reaches.
@@ -347,6 +371,7 @@ def sensitivity(body: SensitivityRequestBody) -> SensitivityResponseBody:
         return SensitivityResponseBody(
             baseline=[],
             load_bearing={oid: [] for oid in body.queried_outputs},
+            effects={},
             no_effect=[],
             skipped=closure_input_ids,
             mode=_mode.name,
@@ -367,22 +392,21 @@ def sensitivity(body: SensitivityRequestBody) -> SensitivityResponseBody:
             status_code=500,
             detail=f"baseline compute failed: {exc}",
         ) from exc
+    if baseline_payload.get("warnings"):
+        raise HTTPException(
+            status_code=502,
+            detail="baseline compute returned warnings; sensitivity would be based on fallback values",
+        )
     baseline_outputs = _outputs_map(baseline_payload)
 
-    load_bearing: dict[str, list[str]] = {oid: [] for oid in body.queried_outputs}
-    no_effect: list[str] = []
-    skipped: list[str] = []
-
-    for input_id in closure_input_ids:
+    def test_input(input_id: str) -> tuple[str, dict[str, Any]]:
         node = inputs_by_id.get(input_id)
         if not node:
-            skipped.append(input_id)
-            continue
+            return ("skipped", {"input_id": input_id})
 
         perturbation = _pick_perturbation(node.name, node.sample)
         if perturbation is None:
-            skipped.append(input_id)
-            continue
+            return ("skipped", {"input_id": input_id})
 
         # Build perturbed request: deep-copy baseline inputs/relations
         # then overwrite this one input.
@@ -408,22 +432,51 @@ def sensitivity(body: SensitivityRequestBody) -> SensitivityResponseBody:
                 period=period,
             )
         except Exception:
-            skipped.append(input_id)
-            continue
+            return ("skipped", {"input_id": input_id})
+        if pert_payload.get("warnings"):
+            return ("skipped", {"input_id": input_id})
 
         pert_outputs = _outputs_map(pert_payload)
-        any_moved = False
+        moved: list[dict[str, Any]] = []
         for oid in body.queried_outputs:
             if pert_outputs.get(oid) != baseline_outputs.get(oid):
-                load_bearing[oid].append(input_id)
-                any_moved = True
-        if not any_moved:
-            no_effect.append(input_id)
+                moved.append({
+                    "output": oid,
+                    "before": baseline_outputs.get(oid),
+                    "after": pert_outputs.get(oid),
+                    "perturbation": perturbation,
+                })
+        if not moved:
+            return ("no_effect", {"input_id": input_id})
+        return ("moved", {"input_id": input_id, "effects": moved})
 
-    return SensitivityResponseBody(
+    load_bearing: dict[str, list[str]] = {oid: [] for oid in body.queried_outputs}
+    effects: dict[str, list[dict[str, Any]]] = {}
+    no_effect: list[str] = []
+    skipped: list[str] = []
+
+    with ThreadPoolExecutor(max_workers=_SENSITIVITY_MAX_WORKERS) as executor:
+        futures = [executor.submit(test_input, input_id) for input_id in closure_input_ids]
+        for future in as_completed(futures):
+            status, payload = future.result()
+            input_id = payload["input_id"]
+            if status == "skipped":
+                skipped.append(input_id)
+            elif status == "no_effect":
+                no_effect.append(input_id)
+            else:
+                moved_effects = payload["effects"]
+                effects[input_id] = moved_effects
+                for effect in moved_effects:
+                    load_bearing[effect["output"]].append(input_id)
+
+    response = SensitivityResponseBody(
         baseline=baseline_payload.get("outputs", []),
         load_bearing=load_bearing,
+        effects=effects,
         no_effect=no_effect,
         skipped=skipped,
         mode=_mode.name,
     )
+    _sensitivity_cache[cache_key] = response.model_copy(deep=True)
+    return response

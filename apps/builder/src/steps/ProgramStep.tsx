@@ -50,6 +50,10 @@ export interface CuratedProgram {
    * returns fixture values. Person-scope inputs auto-route into the
    * declared relation. */
   recommendedInputs?: RecommendedInput[];
+  /** Curated labels/defaults for inputs we may recommend later from
+   * computation-tree analysis, without necessarily preloading every one
+   * into the first form. */
+  inputDefaults?: RecommendedInput[];
   /** Default member count to apply to any auto-exposed relation. */
   recommendedMemberCount?: number;
 }
@@ -72,13 +76,68 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
     labelPrefix: "snap",
     recommendedMemberCount: 3,
     recommendedInputs: [
-      // Household-level questions — the basic shape of "who you are".
+      // Capped starter set: enough to move eligibility and amount, without
+      // flooding the form with every reachable rule-pack input.
       {
         legalId:
           "us-co:regulations/10-ccr-2506-1/4.207.3#input.household_size",
         label: "Household size",
         default: 3,
       },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_lives_in_application_state",
+        label: "Lives in Colorado",
+        default: true,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_in_project_area_solely_for_vacation",
+        label: "In Colorado only for vacation",
+        default: false,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area",
+        label: "Household member already participates elsewhere",
+        default: false,
+      },
+      {
+        legalId: "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income",
+        label: "Gross monthly income",
+        default: 1500,
+      },
+      {
+        legalId: "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income",
+        label: "Countable monthly income",
+        default: 1500,
+      },
+      {
+        legalId:
+          "us-co:regulations/10-ccr-2506-1/4.408.1#input.liquid_resource_current_redemption_rate",
+        label: "Liquid resources",
+        default: 0,
+      },
+      {
+        legalId:
+          "us-co:regulations/10-ccr-2506-1/4.408.1#input.non_liquid_resource_market_value",
+        label: "Non-liquid resources",
+        default: 0,
+      },
+      {
+        legalId:
+          "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#input.other_household_resource_value",
+        label: "Other household resources",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/6#input.member_refused_or_failed_to_provide_or_apply_for_ssn",
+        label: "Refused or failed to provide/apply for SSN",
+        default: false,
+      },
+    ],
+    inputDefaults: [
       {
         legalId:
           "us-co:regulations/10-ccr-2506-1/4.403#input.current_household_income",
@@ -97,7 +156,6 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
         label: "Pays an electricity bill",
         default: true,
       },
-      // Per-member questions auto-route into the household relation.
       {
         legalId: "us:regulations/7-cfr/273/24#input.member_age",
         label: "Age",
@@ -113,6 +171,64 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
           "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled",
         label: "Elderly or has a disability",
         default: false,
+      },
+      {
+        legalId: "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income",
+        label: "Gross monthly income",
+        default: 1500,
+      },
+      {
+        legalId: "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income",
+        label: "Countable monthly income",
+        default: 1500,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_lives_in_application_state",
+        label: "Lives in Colorado",
+        default: true,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_in_project_area_solely_for_vacation",
+        label: "In Colorado only for vacation",
+        default: false,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area",
+        label: "Household member already participates elsewhere",
+        default: false,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/6#input.member_refused_or_failed_to_provide_or_apply_for_ssn",
+        label: "Refused or failed to provide/apply for SSN",
+        default: false,
+      },
+      {
+        legalId:
+          "us-co:regulations/10-ccr-2506-1/4.408.1#input.liquid_resource_current_redemption_rate",
+        label: "Liquid resources",
+        default: 0,
+      },
+      {
+        legalId:
+          "us-co:regulations/10-ccr-2506-1/4.408.1#input.non_liquid_resource_market_value",
+        label: "Non-liquid resources",
+        default: 0,
+      },
+      {
+        legalId:
+          "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#input.other_household_resource_value",
+        label: "Other household resources",
+        default: 0,
+      },
+      {
+        legalId:
+          "us-co:regulations/10-ccr-2506-1/4.408.1#input.real_property_county_assessor_actual_value",
+        label: "Real property value",
+        default: 0,
       },
     ],
     mainOutputs: [
@@ -143,6 +259,25 @@ export function curatedForDraft(
   return CURATED_PROGRAMS.find(
     (c) => c.repo === program.repo && c.path === program.path,
   );
+}
+
+export function curatedCoreQuestionIdsForOutputs(
+  program: { repo: string; path: string } | null,
+  outputIds: string[],
+): string[] | null {
+  const curated = curatedForDraft(program);
+  if (!curated?.mainOutputs?.length || !curated.recommendedInputs?.length) {
+    return null;
+  }
+  if (outputIds.length === 0) return null;
+
+  const curatedOutputIds = new Set(
+    curated.mainOutputs.map((output) => output.legalId),
+  );
+  const isCuratedOutputSet = outputIds.every((id) => curatedOutputIds.has(id));
+  if (!isCuratedOutputSet) return null;
+
+  return curated.recommendedInputs.map((input) => input.legalId).slice(0, 10);
 }
 
 /**

@@ -391,22 +391,24 @@ export function exportSpec(draft: Draft): DashboardSpec | null {
     },
     period: { kind: "month", start: draft.periodStart },
     inputs: [
-      ...draft.inputs.map((i) => ({
+      ...draft.inputs.map((i, idx) => ({
         id: localId(i.legalId),
         legalId: i.legalId,
         dtype: i.dtype,
         label: i.label,
         default: i.default,
         widget: i.widget,
-        group: "inputs",
+        group: "questions",
+        order: idx,
       })),
-      ...draft.relations.map((r) => ({
+      ...draft.relations.map((r, idx) => ({
         id: localId(r.legalId),
         legalId: r.legalId,
         label: r.label,
         minCount: r.minCount,
         maxCount: r.maxCount,
-        group: "inputs",
+        group: "questions",
+        order: 1000 + idx,
         memberInputs: r.memberInputs.map((m) => ({
           id: localId(m.legalId),
           legalId: m.legalId,

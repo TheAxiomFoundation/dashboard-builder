@@ -213,9 +213,11 @@ export function Dashboard({
           {error && <div className="warning">{error}</div>}
 
           {groups.map((group) => {
-            const inputs = spec.inputs.filter(
-              (b) => (("group" in b ? b.group : undefined) ?? "_") === group.key,
-            );
+            const inputs = spec.inputs
+              .filter(
+                (b) => (("group" in b ? b.group : undefined) ?? "_") === group.key,
+              )
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
             if (inputs.length === 0) return null;
 
             return (
@@ -429,8 +431,15 @@ function orderedGroups(spec: DashboardSpec): InputGroup[] {
   for (const b of spec.inputs) {
     const key = ("group" in b ? b.group : undefined) ?? "_";
     if (!seen.has(key)) {
-      seen.set(key, { key, label: key === "_" ? "Inputs" : key });
+      seen.set(key, { key, label: fallbackGroupLabel(key) });
     }
   }
   return [...seen.values()];
+}
+
+function fallbackGroupLabel(key: string): string {
+  if (key === "_" || key === "inputs" || key === "questions") return "Questions";
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }

@@ -111,6 +111,16 @@ export interface SensitivityResult {
   baseline: Array<{ legalId: string; value: unknown; dtype?: string }>;
   /** output_legal_id → list of input_legal_ids that move that output. */
   load_bearing: Record<string, string[]>;
+  /** input_legal_id → evidence showing how perturbing that input moved outputs. */
+  effects?: Record<
+    string,
+    Array<{
+      output: string;
+      before: unknown;
+      after: unknown;
+      perturbation: unknown;
+    }>
+  >;
   no_effect: string[];
   skipped: string[];
   mode: string;
@@ -130,10 +140,12 @@ export async function fetchSensitivity(
     inputs?: Record<string, string | number | boolean>;
     relations?: Record<string, Array<Record<string, string | number | boolean>>>;
   } = {},
+  signal?: AbortSignal,
 ): Promise<SensitivityResult> {
   const res = await fetch(`${COMPUTE_URL}/sensitivity`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal,
     body: JSON.stringify({
       program,
       period: { start: "2026-01-01", end: "2026-02-01" },
@@ -145,4 +157,3 @@ export async function fetchSensitivity(
   if (!res.ok) throw new Error(`failed to fetch sensitivity: ${res.status}`);
   return await res.json();
 }
-

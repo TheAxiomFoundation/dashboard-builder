@@ -7,7 +7,6 @@ import { exportSpec } from "../draft";
 
 interface Props {
   draft: Draft;
-  setDraft: (d: Draft) => void;
   /** Builder hook for the live "+ Expose" buttons inside the dashboard preview. */
   onExposeInput?: (legalId: string) => void;
   /** Set of currently-exposed input legal IDs (so the preview labels them correctly). */
@@ -25,7 +24,6 @@ interface Props {
  */
 export function PublishStep({
   draft,
-  setDraft,
   onExposeInput,
   exposedInputIds,
 }: Props) {
@@ -55,43 +53,6 @@ export function PublishStep({
 
   return (
     <div className="step-body publish-step">
-      {/* Meta editor first — title / period / description are what flow
-          into both the live preview and the exported spec, so editing
-          them at the top means the user sees the change in the preview
-          right below before they grab the YAML / JSON. */}
-      <div className="publish-bar">
-        <div className="meta-grid">
-          <div className="field">
-            <label>Title</label>
-            <input
-              type="text"
-              value={draft.meta.title}
-              onChange={(e) =>
-                setDraft({ ...draft, meta: { ...draft.meta, title: e.target.value } })
-              }
-            />
-          </div>
-          <div className="field">
-            <label>Period</label>
-            <input
-              type="date"
-              value={draft.periodStart}
-              onChange={(e) => setDraft({ ...draft, periodStart: e.target.value })}
-            />
-          </div>
-        </div>
-        <div className="field" style={{ marginTop: 12 }}>
-          <label>Description</label>
-          <textarea
-            rows={2}
-            value={draft.meta.description}
-            onChange={(e) =>
-              setDraft({ ...draft, meta: { ...draft.meta, description: e.target.value } })
-            }
-          />
-        </div>
-      </div>
-
       <div className="publish-divider">
         <span>Preview · what your users will see</span>
       </div>

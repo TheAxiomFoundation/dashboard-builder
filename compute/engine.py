@@ -98,11 +98,16 @@ def _flat_inputs_to_records(
                 # (host) entity second. count_where iterates the related
                 # slot and looks up its inputs there. Inverting these has
                 # been silently dropping every per-member input.
-                relations.append({
-                    "name": legal_id,
-                    "tuple": [member_id, entity_id],
-                    "interval": {"start": interval_start, "end": interval_end},
-                })
+                relation_names = [legal_id]
+                bare_relation = legal_id.split("#relation.", 1)[-1]
+                if bare_relation != legal_id:
+                    relation_names.append(bare_relation)
+                for relation_name in relation_names:
+                    relations.append({
+                        "name": relation_name,
+                        "tuple": [member_id, entity_id],
+                        "interval": {"start": interval_start, "end": interval_end},
+                    })
                 if isinstance(member, dict):
                     for sub_id, sub_value in member.items():
                         inputs.append({
@@ -484,7 +489,7 @@ def _execute_real_batch(
                     "start": interval_start,
                     "end": interval_end,
                 },
-                "outputs": queried_outputs,
+                "outputs": [_query_name(o) for o in queried_outputs],
             }
         ],
     }
@@ -505,12 +510,20 @@ def _execute_real_batch(
         return {"outputs": [], "traces": {}, "warnings": ["no results returned"]}
 
     result = response["results"][0]
-    outputs = [_output_to_response(o) for o in result.get("outputs", {}).values()]
+    queried_by_name = {_query_name(o): o for o in queried_outputs}
+    outputs = [
+        _normalize_output_response(_output_to_response(o), queried_by_name)
+        for o in result.get("outputs", {}).values()
+    ]
     user_keys = _collect_user_keys(user_inputs, relations)
-    rule_input_deps, rule_formulas = _rule_metadata_for(program_yaml)
+    rule_input_deps, rule_formulas, rule_id_by_name = _rule_metadata_for(program_yaml)
+    raw_trace = _normalize_trace_keys(
+        result.get("trace", {}),
+        rule_id_by_name | queried_by_name,
+    )
     traces = _build_trace_tree(
         queried_outputs,
-        result.get("trace", {}),
+        raw_trace,
         flat,
         user_keys,
         rule_input_deps,
@@ -520,12 +533,41 @@ def _execute_real_batch(
     return {"outputs": outputs, "traces": traces, "coverage": coverage}
 
 
-_graph_cache: dict[Path, tuple[dict[str, list[str]], dict[str, str]]] = {}
+def _query_name(legal_id: str) -> str:
+    return legal_id.split("#")[-1]
+
+
+def _normalize_output_response(
+    output: dict[str, Any],
+    queried_by_name: dict[str, str],
+) -> dict[str, Any]:
+    legal_id = output.get("legalId")
+    if isinstance(legal_id, str) and legal_id in queried_by_name:
+        return {**output, "legalId": queried_by_name[legal_id]}
+    return output
+
+
+def _normalize_trace_keys(
+    raw_trace: dict[str, dict[str, Any]],
+    rule_id_by_name: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    normalized: dict[str, dict[str, Any]] = {}
+    for key, node in raw_trace.items():
+        full_key = rule_id_by_name.get(key, key)
+        deps = [
+            rule_id_by_name.get(dep, dep)
+            for dep in (node.get("dependencies") or [])
+        ]
+        normalized[full_key] = {**node, "dependencies": deps}
+    return normalized
+
+
+_graph_cache: dict[Path, tuple[dict[str, list[str]], dict[str, str], dict[str, str]]] = {}
 
 
 def _rule_metadata_for(
     program_yaml: Path,
-) -> tuple[dict[str, list[str]], dict[str, str]]:
+) -> tuple[dict[str, list[str]], dict[str, str], dict[str, str]]:
     """Cached (rule→input-deps, rule→formula) maps for a program.
 
     Both maps key off rule legal ID. `formula` is the latest version's raw
@@ -537,16 +579,18 @@ def _rule_metadata_for(
     try:
         graph = build_graph(program_yaml, _infer_repo(program_yaml))
     except Exception:
-        _graph_cache[program_yaml] = ({}, {})
-        return ({}, {})
+        _graph_cache[program_yaml] = ({}, {}, {})
+        return ({}, {}, {})
     deps: dict[str, list[str]] = {}
     formulas: dict[str, str] = {}
+    rule_id_by_name: dict[str, str] = {}
     for rule in graph.rules.values():
         deps[rule.legal_id] = list(rule.input_deps) + list(rule.relation_deps)
+        rule_id_by_name.setdefault(rule.name, rule.legal_id)
         if rule.formula:
             formulas[rule.legal_id] = rule.formula
-    _graph_cache[program_yaml] = (deps, formulas)
-    return (deps, formulas)
+    _graph_cache[program_yaml] = (deps, formulas, rule_id_by_name)
+    return (deps, formulas, rule_id_by_name)
 
 
 def _infer_repo(program_yaml: Path) -> str:
@@ -584,15 +628,76 @@ def _infer_default_value(legal_id: str) -> dict[str, Any]:
         "_anticipated", "_assigned", "_referred", "_offered", "_allowed",
         "_verified", "_confirmed", "_separately",
     )
+    boolean_contains = (
+        "_entitled_to_", "_eligible_for_", "_subject_to_",
+        "_responsible_for_", "_required_to_", "_exempt_from_",
+    )
     if (
         fragment.startswith(boolean_starts)
         or any(fragment.endswith(s) for s in boolean_endings)
+        or any(s in fragment for s in boolean_contains)
         or "_holds" in fragment
     ):
         return {"kind": "bool", "value": False}
     if "date" in fragment:
         return {"kind": "date", "value": "2026-01-01"}
     return {"kind": "decimal", "value": "0"}
+
+
+_fixture_output_default_cache: dict[Path, dict[str, Any]] = {}
+
+
+def _fixture_output_defaults(program_yaml: Path) -> dict[str, Any]:
+    """Map fixture output legal IDs and bare rule names to scalar defaults.
+
+    Newer axiom-rules builds can report some upstream rule outputs as missing
+    dataset inputs by bare name. The SNAP test fixture already contains the
+    coherent baseline values for those upstream outputs, so prefer those values
+    over heuristic zero/false defaults when the engine asks for them.
+    """
+    if program_yaml in _fixture_output_default_cache:
+        return _fixture_output_default_cache[program_yaml]
+
+    template = first_test_case(t) if (t := find_test_template(program_yaml)) else None
+    defaults: dict[str, Any] = {}
+    if template:
+        for legal_id, raw in iter_outputs_in_template(template):
+            if _is_engine_scalar_default(raw):
+                defaults[legal_id] = raw
+                fragment = legal_id.split("#")[-1]
+                defaults.setdefault(fragment, raw)
+                defaults.setdefault(fragment.removeprefix("input."), raw)
+
+    _fixture_output_default_cache[program_yaml] = defaults
+    return defaults
+
+
+def _is_engine_scalar_default(raw: Any) -> bool:
+    if isinstance(raw, bool | int | float):
+        return True
+    if isinstance(raw, str):
+        if raw in {"holds", "not_holds", "undetermined"}:
+            return False
+        return len(raw) == 10 and raw[4] == "-" and raw[7] == "-"
+    return False
+
+
+def _default_value_for_missing_input(
+    program_yaml: Path,
+    full_id: str,
+    reported_id: str,
+) -> dict[str, Any]:
+    defaults = _fixture_output_defaults(program_yaml)
+    for key in (
+        full_id,
+        reported_id,
+        full_id.split("#")[-1],
+        full_id.split("#")[-1].removeprefix("input."),
+        reported_id.removeprefix("input."),
+    ):
+        if key in defaults:
+            return _coerce_value(defaults[key])
+    return _infer_default_value(full_id)
 
 
 def _run_with_missing_input_retries(
@@ -720,7 +825,7 @@ def _run_with_missing_input_retries(
                     f"No rule in the program graph references it. Stderr: {stderr.strip()}"
                 )
             chosen = candidates.pop(0)
-            value = _infer_default_value(chosen)
+            value = _default_value_for_missing_input(program_yaml, chosen, bare_name)
             request_payload["dataset"]["inputs"].append({
                 "name": chosen,
                 "entity": "Household",
@@ -753,6 +858,16 @@ def _run_with_missing_input_retries(
                     except Exception:
                         pending_candidates[reported_id] = []
                 full_candidates = pending_candidates[reported_id]
+                if not full_candidates:
+                    # Some compiled formulas still contain genuine bare
+                    # inputs (usually from upstream rule files whose tests
+                    # model the value as an external fact). If the engine
+                    # reports a bare input as missing and the graph cannot
+                    # legal-ID-qualify it, satisfy the exact bare name. If
+                    # that name is not accepted, the existing bare-name
+                    # rejection branch will remove it and surface a clearer
+                    # diagnostic.
+                    full_candidates = [reported_id]
 
             # Pick the first candidate we haven't already tried for this
             # entity scope. If they're all exhausted, bail with a clear
@@ -769,7 +884,7 @@ def _run_with_missing_input_retries(
                 )
 
             rejected_legal_ids.add((full_id, entity_class))
-            value = _infer_default_value(full_id)
+            value = _default_value_for_missing_input(program_yaml, full_id, reported_id)
 
             if entity_class == "person":
                 # Engine reports one person at a time — fill the default
