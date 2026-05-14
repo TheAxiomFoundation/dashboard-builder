@@ -36,7 +36,7 @@ fi
 echo "→ building axiom-rules-engine (release)"
 ( cd "$AXIOM_RULES_DIR" && cargo build --release )
 
-BIN="$AXIOM_RULES_DIR/target/release/axiom-rules-engine"
+BIN="$AXIOM_RULES_DIR/target/release/axiom-rules"
 if [ ! -x "$BIN" ]; then
   echo "error: build did not produce $BIN" >&2
   exit 1

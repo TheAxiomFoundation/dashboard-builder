@@ -42,7 +42,7 @@ uv pip install -e .
 uv pip install -e ../../axiom-rules-engine/python
 
 # 3. Point the service at the binary and run.
-export AXIOM_RULES_ENGINE_BIN="$(pwd)/../../axiom-rules-engine/target/release/axiom-rules-engine"
+export AXIOM_RULES_ENGINE_BIN="$(pwd)/../../axiom-rules-engine/target/release/axiom-rules"
 uv run uvicorn main:app --reload --port 8787
 ```
 

@@ -71,7 +71,7 @@ image = (
         {
             # engine.py reads this to invoke axiom-rules-engine; if unset the service
             # silently degrades to demo mode.
-            "AXIOM_RULES_ENGINE_BIN": "/opt/axiom-rules-engine/target/release/axiom-rules-engine",
+            "AXIOM_RULES_ENGINE_BIN": "/opt/axiom-rules-engine/target/release/axiom-rules",
             # registry.py uses this as the parent dir to resolve `rulespec-*` clones.
             "AXIOM_RULESPEC_ROOT": "/opt",
             # CORS for the Vercel-hosted builder. Tighten to a specific origin
