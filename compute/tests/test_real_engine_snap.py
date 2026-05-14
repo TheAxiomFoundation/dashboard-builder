@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 import sys
 import tempfile
@@ -13,12 +14,53 @@ from dotenv import load_dotenv
 COMPUTE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(COMPUTE_ROOT))
 
-from engine import _compile_cache, execute_real
+from engine import (
+    _alternate_query_reference,
+    _artifact_derived_id_cache,
+    _compile_cache,
+    _query_reference,
+    execute_real,
+)
 
 
 SNAP_PROGRAM = Path("rules-us-co/policies/cdhs/snap/fy-2026-benefit-calculation.yaml")
 SNAP_ELIGIBLE = "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_eligible"
 SNAP_ALLOTMENT = "us-co:regulations/10-ccr-2506-1/4.207.2#snap_allotment"
+
+
+class OutputQueryReferenceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        _artifact_derived_id_cache.clear()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.artifact = Path(self.tmp.name) / "compiled.json"
+
+    def _write_artifact(self, derived: list[dict[str, object]]) -> None:
+        self.artifact.write_text(json.dumps({"program": {"derived": derived}}))
+
+    def test_uses_public_legal_id_when_compiled_artifact_has_one(self) -> None:
+        self._write_artifact([
+            {"id": SNAP_ALLOTMENT, "name": "snap_allotment"},
+        ])
+
+        self.assertEqual(_query_reference(SNAP_ALLOTMENT, self.artifact), SNAP_ALLOTMENT)
+
+    def test_uses_bare_name_when_compiled_artifact_has_no_public_id(self) -> None:
+        self._write_artifact([
+            {"name": "snap_allotment"},
+        ])
+
+        self.assertEqual(_query_reference(SNAP_ALLOTMENT, self.artifact), "snap_allotment")
+
+    def test_can_retry_between_bare_name_and_public_legal_id(self) -> None:
+        self.assertEqual(
+            _alternate_query_reference(SNAP_ALLOTMENT, "snap_allotment"),
+            SNAP_ALLOTMENT,
+        )
+        self.assertEqual(
+            _alternate_query_reference(SNAP_ALLOTMENT, SNAP_ALLOTMENT),
+            "snap_allotment",
+        )
 
 
 class RealSnapEngineSmokeTest(unittest.TestCase):
@@ -102,6 +144,7 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
 
     def test_snap_baseline_compute_does_not_fall_back_to_fixture(self) -> None:
         _compile_cache.clear()
+        _artifact_derived_id_cache.clear()
 
         old_cwd = Path.cwd()
         try:
@@ -125,6 +168,36 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
         }
         self.assertEqual(outputs.get(SNAP_ELIGIBLE), "holds")
         self.assertEqual(outputs.get(SNAP_ALLOTMENT), 298)
+
+    def test_snap_allotment_user_inputs_compute_live(self) -> None:
+        _compile_cache.clear()
+        _artifact_derived_id_cache.clear()
+
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(self.alias_root)
+            with patch.dict(os.environ, self.engine_env, clear=False):
+                payload = execute_real(
+                    program_yaml=self.program_yaml,
+                    rules_root=self.rules_root,
+                    user_inputs={
+                        "us-co:regulations/10-ccr-2506-1/4.207.3#input.household_size": 3,
+                        "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income": 1500,
+                        "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income": 1500,
+                    },
+                    relations=None,
+                    queried_outputs=[SNAP_ALLOTMENT],
+                    period="2026-01",
+                )
+        finally:
+            os.chdir(old_cwd)
+
+        self.assertEqual(payload.get("warnings", []), [])
+        outputs = {
+            output.get("legalId"): output.get("value")
+            for output in payload.get("outputs", [])
+        }
+        self.assertEqual(outputs.get(SNAP_ALLOTMENT), 680.0)
 
 
 if __name__ == "__main__":

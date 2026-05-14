@@ -474,6 +474,12 @@ def _execute_real_batch(
         interval_end=interval_end,
     )
 
+    artifact = _ensure_compiled(binary, program_yaml)
+    query_refs = {
+        legal_id: _query_reference(legal_id, artifact)
+        for legal_id in queried_outputs
+    }
+
     request_payload = {
         "mode": "explain",
         "dataset": {"inputs": inputs, "relations": relation_records},
@@ -485,28 +491,56 @@ def _execute_real_batch(
                     "start": interval_start,
                     "end": interval_end,
                 },
-                "outputs": [_query_name(o) for o in queried_outputs],
+                "outputs": [query_refs[o] for o in queried_outputs],
             }
         ],
     }
 
-    artifact = _ensure_compiled(binary, program_yaml)
-    proc = _run_with_missing_input_retries(
-        binary,
-        artifact,
-        request_payload,
-        entity_id="household:1",
-        interval_start=interval_start,
-        interval_end=interval_end,
-        program_yaml=program_yaml,
-    )
+    try:
+        proc = _run_with_missing_input_retries(
+            binary,
+            artifact,
+            request_payload,
+            entity_id="household:1",
+            interval_start=interval_start,
+            interval_end=interval_end,
+            program_yaml=program_yaml,
+        )
+    except RuntimeError as err:
+        if "unknown derived output" not in str(err):
+            raise
+        alternate_refs = {
+            legal_id: _alternate_query_reference(legal_id, query_refs[legal_id])
+            for legal_id in queried_outputs
+        }
+        if alternate_refs == query_refs:
+            raise
+        request_payload["queries"][0]["outputs"] = [
+            alternate_refs[o] for o in queried_outputs
+        ]
+        query_refs = alternate_refs
+        proc = _run_with_missing_input_retries(
+            binary,
+            artifact,
+            request_payload,
+            entity_id="household:1",
+            interval_start=interval_start,
+            interval_end=interval_end,
+            program_yaml=program_yaml,
+        )
 
     response = json.loads(proc.stdout)
     if not response.get("results"):
         return {"outputs": [], "traces": {}, "warnings": ["no results returned"]}
 
     result = response["results"][0]
-    queried_by_name = {_query_name(o): o for o in queried_outputs}
+    queried_by_name = {
+        ref: legal_id
+        for legal_id, ref in query_refs.items()
+    } | {
+        _query_name(legal_id): legal_id
+        for legal_id in queried_outputs
+    }
     outputs = [
         _normalize_output_response(_output_to_response(o), queried_by_name)
         for o in result.get("outputs", {}).values()
@@ -531,6 +565,46 @@ def _execute_real_batch(
 
 def _query_name(legal_id: str) -> str:
     return legal_id.split("#")[-1]
+
+
+def _query_reference(legal_id: str, artifact: Path) -> str:
+    """Use the reference form this compiled artifact can resolve.
+
+    Recent repo-backed artifacts expose public RuleSpec IDs and reject bare
+    names. Older/local artifacts for composition files may still have derived
+    records without ids, so those must be queried by bare rule name.
+    """
+    if _artifact_has_derived_id(artifact, legal_id):
+        return legal_id
+    return _query_name(legal_id)
+
+
+def _alternate_query_reference(legal_id: str, current: str) -> str:
+    if current == legal_id:
+        return _query_name(legal_id)
+    if "#" in legal_id:
+        return legal_id
+    return current
+
+
+_artifact_derived_id_cache: dict[Path, set[str]] = {}
+
+
+def _artifact_has_derived_id(artifact: Path, legal_id: str) -> bool:
+    if artifact not in _artifact_derived_id_cache:
+        try:
+            raw = json.loads(artifact.read_text())
+            program = raw.get("program", raw)
+            derived = program.get("derived", [])
+            ids = {
+                rule.get("id")
+                for rule in derived
+                if isinstance(rule, dict) and rule.get("id")
+            }
+        except Exception:
+            ids = set()
+        _artifact_derived_id_cache[artifact] = ids
+    return legal_id in _artifact_derived_id_cache[artifact]
 
 
 def _normalize_output_response(
