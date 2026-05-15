@@ -19,21 +19,21 @@ from pathlib import Path
 import yaml
 
 DEFAULT_REPOS = [
-    "rulespec-us",
-    "rulespec-us-co",
-    "rulespec-us-ca",
-    "rulespec-us-ny",
-    "rulespec-us-tx",
-    "rulespec-us-fl",
-    "rulespec-us-ga",
-    "rulespec-us-md",
-    "rulespec-us-nc",
-    "rulespec-us-sc",
-    "rulespec-us-tn",
-    "rulespec-us-al",
-    "rulespec-us-ar",
-    "rulespec-uk",
-    "rulespec-ca",
+    "rules-us",
+    "rules-us-co",
+    "rules-us-ca",
+    "rules-us-ny",
+    "rules-us-tx",
+    "rules-us-fl",
+    "rules-us-ga",
+    "rules-us-md",
+    "rules-us-nc",
+    "rules-us-sc",
+    "rules-us-tn",
+    "rules-us-al",
+    "rules-us-ar",
+    "rules-uk",
+    "rules-ca",
 ]
 
 
@@ -53,7 +53,18 @@ class RegistryConfig:
 
 
 def repo_path(config: RegistryConfig, repo: str) -> Path:
-    return config.root / repo
+    primary = config.root / repo
+    if primary.exists():
+        return primary
+    if repo.startswith("rules-"):
+        canonical = config.root / f"rulespec-{repo[len('rules-'):]}"
+        if canonical.exists():
+            return canonical
+    if repo.startswith("rulespec-"):
+        alias = config.root / f"rules-{repo[len('rulespec-'):]}"
+        if alias.exists():
+            return alias
+    return primary
 
 
 def ensure_repo(config: RegistryConfig, repo: str) -> Path:
@@ -62,7 +73,8 @@ def ensure_repo(config: RegistryConfig, repo: str) -> Path:
     if path.exists():
         return path
     config.root.mkdir(parents=True, exist_ok=True)
-    url = f"https://github.com/TheAxiomFoundation/{repo}.git"
+    clone_repo = f"rulespec-{repo[len('rules-'):]}" if repo.startswith("rules-") else repo
+    url = f"https://github.com/TheAxiomFoundation/{clone_repo}.git"
     subprocess.run(
         ["git", "clone", "--depth", "1", url, str(path)],
         check=True,
@@ -75,11 +87,15 @@ def list_known_repos(config: RegistryConfig) -> list[str]:
     """Repos that exist on disk now. Falls back to DEFAULT_REPOS if none cloned yet."""
     if not config.root.exists():
         return list(DEFAULT_REPOS)
-    found = sorted(
-        p.name for p in config.root.iterdir()
-        if p.is_dir() and p.name.startswith("rules-")
-    )
-    return found or list(DEFAULT_REPOS)
+    found: set[str] = set()
+    for p in config.root.iterdir():
+        if not p.is_dir():
+            continue
+        if p.name.startswith("rules-"):
+            found.add(p.name)
+        elif p.name.startswith("rulespec-"):
+            found.add(f"rules-{p.name[len('rulespec-'):]}")
+    return sorted(found) or list(DEFAULT_REPOS)
 
 
 _summary_cache: dict[Path, tuple[float, str]] = {}
