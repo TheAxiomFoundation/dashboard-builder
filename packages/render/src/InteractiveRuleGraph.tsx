@@ -328,12 +328,16 @@ export function InteractiveRuleGraph({
               onExposeInput(data.legalId);
               return;
             }
+            if (data.kind === "input" && onExposeInput && data.canExpose) {
+              onExposeInput(data.legalId);
+              return;
+            }
             if (data.kind === "ruleRef") {
               if (action === "output" && onAddOutput) {
                 onAddOutput(data.legalId);
                 return;
               }
-              if (action === "collapse" && data.canExpand) {
+              if ((action === "collapse" || !actionEl) && data.canExpand) {
                 toggleCollapse(data.legalId);
                 return;
               }
@@ -343,7 +347,7 @@ export function InteractiveRuleGraph({
                 onAddOutput(data.legalId);
                 return;
               }
-              if (action === "collapse" && data.canExpand) {
+              if ((action === "collapse" || !actionEl) && data.canExpand) {
                 toggleCollapse(data.legalId);
                 return;
               }
@@ -787,7 +791,7 @@ const InputNode = ({ data }: NodeProps) => {
       <div className="irg-label">{softBreak(humanizeLabel(d.label))}</div>
       {d.showValues && d.value && <div className="irg-value">{d.value}</div>}
       {showAction && (
-        <div className="irg-action irg-action-clickable">
+        <div className="irg-action irg-action-clickable" data-action="expose">
           {d.source === "user" ? "− remove" : "+ ask the user"}
         </div>
       )}

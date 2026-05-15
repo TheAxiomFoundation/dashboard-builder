@@ -103,13 +103,9 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
         default: false,
       },
       {
-        legalId: "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income",
-        label: "Gross monthly income",
-        default: 1500,
-      },
-      {
-        legalId: "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income",
-        label: "Countable monthly income",
+        legalId:
+          "us-co:regulations/10-ccr-2506-1/4.403#input.employee_wages_received",
+        label: "Monthly employee wages",
         default: 1500,
       },
       {
@@ -140,8 +136,8 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
     inputDefaults: [
       {
         legalId:
-          "us-co:regulations/10-ccr-2506-1/4.403#input.current_household_income",
-        label: "Monthly household income",
+          "us-co:regulations/10-ccr-2506-1/4.403#input.employee_wages_received",
+        label: "Monthly employee wages",
         default: 1500,
       },
       {
@@ -171,16 +167,6 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
           "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled",
         label: "Elderly or has a disability",
         default: false,
-      },
-      {
-        legalId: "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income",
-        label: "Gross monthly income",
-        default: 1500,
-      },
-      {
-        legalId: "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income",
-        label: "Countable monthly income",
-        default: 1500,
       },
       {
         legalId:

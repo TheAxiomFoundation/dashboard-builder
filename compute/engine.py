@@ -208,6 +208,32 @@ def _input_leaf(
     }
 
 
+def _fixture_output_node(legal_id: str, raw_value: Any) -> dict[str, Any]:
+    file_part, _, name = legal_id.partition("#")
+    if isinstance(raw_value, str) and raw_value in {"holds", "not_holds", "undetermined"}:
+        dtype = "judgment"
+    elif isinstance(raw_value, bool):
+        dtype = "boolean"
+    elif isinstance(raw_value, int) and not isinstance(raw_value, bool):
+        dtype = "integer"
+    elif isinstance(raw_value, float):
+        dtype = "decimal"
+    elif isinstance(raw_value, str) and len(raw_value) == 10 and raw_value[4] == "-" and raw_value[7] == "-":
+        dtype = "date"
+    elif isinstance(raw_value, str):
+        dtype = "string"
+    else:
+        dtype = "decimal"
+    return {
+        "legalId": legal_id,
+        "label": name,
+        "value": _normalize_input_value(raw_value),
+        "dtype": dtype,
+        "source": _humanize_citation(file_part),
+        "children": [],
+    }
+
+
 def _humanize_citation(file_legal_id: str) -> str:
     """Best-effort human citation from a RuleSpec file legal ID.
 
@@ -299,13 +325,229 @@ def _collect_user_keys(
     return keys
 
 
+def _filter_user_supplied_values(
+    program_yaml: Path,
+    user_inputs: dict[str, Any],
+    relations: dict[str, list[dict[str, Any]]] | None,
+) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]] | None]:
+    """Drop submitted values that are not real graph inputs/relations.
+
+    This is a defensive boundary: older drafts or curated starter lists may
+    still contain generic statutory `#input.*` IDs that the composed graph now
+    resolves as computed outputs. Passing those through lets the dashboard
+    override part of the calculation. The graph is the source of truth for
+    what a user may supply.
+    """
+    try:
+        graph = build_graph(program_yaml, _infer_repo(program_yaml))
+    except Exception:
+        return user_inputs, relations
+
+    allowed_inputs = set(graph.inputs)
+    allowed_relations = set(graph.relations)
+
+    filtered_inputs = {
+        legal_id: value
+        for legal_id, value in user_inputs.items()
+        if legal_id in allowed_inputs or legal_id in allowed_relations
+    }
+
+    if not relations:
+        return filtered_inputs, relations
+
+    filtered_relations: dict[str, list[dict[str, Any]]] = {}
+    for relation_id, members in relations.items():
+        if relation_id not in allowed_relations:
+            continue
+        filtered_members: list[dict[str, Any]] = []
+        for member in members:
+            if not isinstance(member, dict):
+                continue
+            filtered_members.append({
+                legal_id: value
+                for legal_id, value in member.items()
+                if legal_id in allowed_inputs
+            })
+        filtered_relations[relation_id] = filtered_members
+
+    return filtered_inputs, filtered_relations
+
+
+_CO_SNAP_PROGRAM_SUFFIX = "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
+
+
+def _dynamic_input_defaults(program_yaml: Path, flat: dict[str, Any]) -> dict[str, Any]:
+    """Computed bridge defaults for imported rules that still ask for generic inputs.
+
+    The Colorado SNAP composition computes income through state rules, while
+    some imported federal modules still request generic income inputs by name.
+    Without this bridge the missing-input retry path fills those names from
+    the fixture baseline, so changing employee wages affects deductions but
+    leaves monthly/gross income stuck at the original fixture value.
+    """
+    program_posix = program_yaml.as_posix()
+    if not program_posix.endswith(_CO_SNAP_PROGRAM_SUFFIX):
+        return {}
+
+    co_403 = "us-co:regulations/10-ccr-2506-1/4.403#input."
+    co_403_2 = "us-co:regulations/10-ccr-2506-1/4.403.2#input."
+    co_403_11 = "us-co:regulations/10-ccr-2506-1/4.403.11#input."
+    co_404 = "us-co:regulations/10-ccr-2506-1/4.404#input."
+
+    def amount(legal_id: str) -> float:
+        raw = flat.get(legal_id, 0)
+        if isinstance(raw, bool):
+            return 1.0 if raw else 0.0
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def flag(legal_id: str) -> bool:
+        raw = flat.get(legal_id, False)
+        if isinstance(raw, str):
+            return raw.strip().lower() in {"true", "1", "yes", "y"}
+        return bool(raw)
+
+    wage_income = 0.0
+    if not flag(f"{co_403}higher_education_state_work_study_or_work_requirement_fellowship_income"):
+        wage_income = sum(
+            amount(f"{co_403}{name}")
+            for name in (
+                "employee_wages_received",
+                "garnished_or_diverted_wages_for_household_expenses",
+                "wages_held_at_employee_request_that_would_have_been_paid",
+                "wages_previously_withheld_by_employer_general_practice_received",
+                "reasonably_anticipated_wage_advances_received",
+            )
+        )
+
+    sick_vacation_bonus = (
+        amount(f"{co_403}sick_vacation_or_bonus_pay_received")
+        if flag(f"{co_403}person_still_employed_when_sick_vacation_or_bonus_pay_received")
+        else 0.0
+    )
+    rental_gross = amount(f"{co_403}rental_property_gross_income")
+    rental_costs = amount(f"{co_403}rental_property_business_costs")
+    rental_is_earned = amount(f"{co_403}average_rental_property_management_hours_per_week") >= 20
+    earned_rental = max(0.0, rental_gross - rental_costs) if rental_is_earned else 0.0
+    boarder_income = max(
+        0.0,
+        amount(f"{co_403_2}boarder_payments_for_room_meals_and_shelter_contributions")
+        - amount(f"{co_403_2}actual_documented_boarder_room_and_meal_costs"),
+    )
+    other_self_employment = max(
+        0.0,
+        amount(f"{co_403_11}self_employment_gross_income_for_period")
+        + amount(f"{co_403_11}self_employment_capital_gains_for_period")
+        - amount(f"{co_403_11}allowable_self_employment_business_costs_for_period"),
+    )
+    earned = (
+        wage_income
+        + amount(f"{co_403}household_vista_or_title_i_domestic_volunteer_earned_income")
+        + amount(f"{co_403}household_training_allowance_earned_income")
+        + amount(f"{co_403}household_wioa_ojt_earned_income")
+        + sick_vacation_bonus
+        + earned_rental
+        + amount(f"{co_403}household_llc_s_corporation_owner_earned_income")
+        + (0.0 if flag(f"{co_403_2}boarder_income_is_foster_care_payment") else boarder_income)
+        + other_self_employment
+        + amount(f"{co_403}capital_goods_services_or_property_sale_proceeds_connected_to_self_employment")
+    )
+
+    unearned_rental = max(0.0, rental_gross - rental_costs) if not rental_is_earned else 0.0
+    terminated_installment = (
+        amount(f"{co_404}vacation_sick_or_bonus_pay")
+        if (
+            flag(f"{co_404}vacation_sick_or_bonus_pay_after_terminated_employment")
+            and flag(f"{co_404}vacation_sick_or_bonus_pay_received_in_installments")
+        )
+        else 0.0
+    )
+    nonprofit_gift = max(0.0, amount(f"{co_404}nonprofit_gifts_received_in_fiscal_quarter") - 300)
+    other_gift = (
+        amount(f"{co_404}gifts_from_other_sources")
+        if flag(f"{co_404}gifts_from_other_sources_can_be_anticipated")
+        else 0.0
+    )
+    lottery = (
+        amount(f"{co_404}household_member_allocated_lottery_or_gambling_winnings")
+        if flag(f"{co_404}substantial_lottery_or_gambling_winnings_received")
+        else 0.0
+    )
+    sponsor = (
+        amount(f"{co_404}sponsor_income_deemed_to_household")
+        if flag(f"{co_404}sponsored_noncitizen_household")
+        else 0.0
+    )
+    unearned = (
+        amount(f"{co_404}assistance_payments")
+        + amount(f"{co_404}retirement_disability_payments")
+        + amount(f"{co_404}direct_support_and_alimony_payments")
+        + unearned_rental
+        + sponsor
+        + terminated_installment
+        + nonprofit_gift
+        + other_gift
+        + amount(f"{co_404}other_gain_or_benefit_payments")
+        + amount(f"{co_404}trust_fund_withdrawals")
+        + amount(f"{co_404}available_trust_dividends")
+        + lottery
+    )
+    gross = earned + unearned
+
+    def scalar(value: float) -> int | float:
+        return int(value) if value.is_integer() else value
+
+    earned_value = scalar(earned)
+    unearned_value = scalar(unearned)
+    gross_value = scalar(gross)
+
+    defaults = {
+        "snap_countable_earned_income": earned_value,
+        "snap_countable_unearned_income": unearned_value,
+        "snap_gross_monthly_earned_income": earned_value,
+        "snap_total_monthly_unearned_income": unearned_value,
+        "snap_gross_monthly_income": gross_value,
+        "snap_monthly_household_income": gross_value,
+        "us:statutes/7/2014/e/2#input.snap_countable_earned_income": earned_value,
+        "us:regulations/7-cfr/273/10#input.snap_countable_earned_income": earned_value,
+        "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income": earned_value,
+        "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income": unearned_value,
+        "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income": unearned_value,
+        "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income": gross_value,
+        "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income": gross_value,
+        "us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income": earned_value,
+        "us-co:regulations/10-ccr-2506-1/4.404#snap_countable_unearned_income": unearned_value,
+        "us:regulations/7-cfr/273/10#snap_gross_monthly_income": gross_value,
+        "us:regulations/7-cfr/273/10#snap_monthly_household_income": gross_value,
+    }
+    return defaults
+
+
+def _fixture_outputs_for_trace(
+    program_yaml: Path,
+    dynamic_defaults: dict[str, Any] | None,
+) -> dict[str, Any]:
+    outputs = dict(_fixture_output_defaults_by_legal_id(program_yaml))
+    if dynamic_defaults:
+        outputs.update({
+            key: value
+            for key, value in dynamic_defaults.items()
+            if "#" in key and "#input." not in key
+        })
+    return outputs
+
+
 def _build_trace_tree(
     queried: list[str],
     raw_trace: dict[str, dict[str, Any]],
     flat_inputs: dict[str, Any],
     user_keys: set[str],
+    rule_rule_deps: dict[str, list[str]] | None = None,
     rule_input_deps: dict[str, list[str]] | None = None,
     rule_formulas: dict[str, str] | None = None,
+    fixture_outputs: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Convert flat trace dict into a per-output tree.
 
@@ -321,13 +563,31 @@ def _build_trace_tree(
         legal_id: _trace_node(legal_id, raw_trace[legal_id], formulas.get(legal_id))
         for legal_id in raw_trace
     }
+    fixture_outputs = fixture_outputs or {}
+    rule_rule_deps = rule_rule_deps or {}
     rule_input_deps = rule_input_deps or {}
 
     for legal_id, raw in raw_trace.items():
         node = nodes[legal_id]
+        seen_child_ids: set[str] = set()
         for dep_id in raw.get("dependencies") or []:
             if dep_id in nodes:
                 node["children"].append(nodes[dep_id])
+                seen_child_ids.add(dep_id)
+
+        # Engine traces only report runtime rule dependencies. The graph also
+        # knows about fixture-only outputs that stand in for generic statutory
+        # inputs; include those as output-like leaves instead of demoting them
+        # to user inputs.
+        for dep_id in rule_rule_deps.get(legal_id, []):
+            if dep_id in seen_child_ids:
+                continue
+            if dep_id in nodes:
+                node["children"].append(nodes[dep_id])
+                seen_child_ids.add(dep_id)
+            elif dep_id in fixture_outputs:
+                node["children"].append(_fixture_output_node(dep_id, fixture_outputs[dep_id]))
+                seen_child_ids.add(dep_id)
 
         # Append input deps last so they sit at the bottom of the rule's
         # children list (rules first, then their leaf inputs).
@@ -366,6 +626,11 @@ def execute_real(
     real engine values; the failures fall back to test-fixture values with a
     per-output warning naming the engine error.
     """
+    user_inputs, relations = _filter_user_supplied_values(
+        program_yaml,
+        user_inputs,
+        relations,
+    )
     try:
         return _execute_real_batch(
             program_yaml=program_yaml,
@@ -466,6 +731,7 @@ def _execute_real_batch(
     template = first_test_case(test) if (test := find_test_template(program_yaml)) else None
 
     flat = merge_with_template(template, user_inputs, relations)
+    dynamic_defaults = _dynamic_input_defaults(program_yaml, flat)
     interval_start, interval_end = _month_bounds(period)
     inputs, relation_records = _flat_inputs_to_records(
         flat,
@@ -506,6 +772,7 @@ def _execute_real_batch(
             interval_start=interval_start,
             interval_end=interval_end,
             program_yaml=program_yaml,
+            dynamic_defaults=dynamic_defaults,
         )
     except RuntimeError as err:
         if "unknown derived output" not in str(err):
@@ -528,6 +795,7 @@ def _execute_real_batch(
             interval_start=interval_start,
             interval_end=interval_end,
             program_yaml=program_yaml,
+            dynamic_defaults=dynamic_defaults,
         )
 
     response = json.loads(proc.stdout)
@@ -547,7 +815,7 @@ def _execute_real_batch(
         for o in result.get("outputs", {}).values()
     ]
     user_keys = _collect_user_keys(user_inputs, relations)
-    rule_input_deps, rule_formulas, rule_id_by_name = _rule_metadata_for(program_yaml)
+    rule_rule_deps, rule_input_deps, rule_formulas, rule_id_by_name = _rule_metadata_for(program_yaml)
     raw_trace = _normalize_trace_keys(
         result.get("trace", {}),
         rule_id_by_name | queried_by_name,
@@ -557,8 +825,10 @@ def _execute_real_batch(
         raw_trace,
         flat,
         user_keys,
+        rule_rule_deps,
         rule_input_deps,
         rule_formulas,
+        _fixture_outputs_for_trace(program_yaml, dynamic_defaults),
     )
     coverage = _coverage(flat, user_keys)
     return {"outputs": outputs, "traces": traces, "coverage": coverage}
@@ -633,35 +903,40 @@ def _normalize_trace_keys(
     return normalized
 
 
-_graph_cache: dict[Path, tuple[dict[str, list[str]], dict[str, str], dict[str, str]]] = {}
+_graph_cache: dict[
+    Path,
+    tuple[dict[str, list[str]], dict[str, list[str]], dict[str, str], dict[str, str]],
+] = {}
 
 
 def _rule_metadata_for(
     program_yaml: Path,
-) -> tuple[dict[str, list[str]], dict[str, str], dict[str, str]]:
-    """Cached (rule→input-deps, rule→formula) maps for a program.
+) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, str], dict[str, str]]:
+    """Cached rule dependency and formula maps for a program.
 
-    Both maps key off rule legal ID. `formula` is the latest version's raw
-    condition text from the YAML, used by the UI to explain *why* a rule
-    holds or fails. Empty maps on graph-build failure.
+    Maps key off rule legal ID. `formula` is the latest version's raw
+    condition text from the YAML, used by the UI to explain why a rule holds
+    or fails. Empty maps on graph-build failure.
     """
     if program_yaml in _graph_cache:
         return _graph_cache[program_yaml]
     try:
         graph = build_graph(program_yaml, _infer_repo(program_yaml))
     except Exception:
-        _graph_cache[program_yaml] = ({}, {}, {})
-        return ({}, {}, {})
-    deps: dict[str, list[str]] = {}
+        _graph_cache[program_yaml] = ({}, {}, {}, {})
+        return ({}, {}, {}, {})
+    rule_deps: dict[str, list[str]] = {}
+    input_deps: dict[str, list[str]] = {}
     formulas: dict[str, str] = {}
     rule_id_by_name: dict[str, str] = {}
     for rule in graph.rules.values():
-        deps[rule.legal_id] = list(rule.input_deps) + list(rule.relation_deps)
+        rule_deps[rule.legal_id] = list(rule.rule_deps)
+        input_deps[rule.legal_id] = list(rule.input_deps) + list(rule.relation_deps)
         rule_id_by_name.setdefault(rule.name, rule.legal_id)
         if rule.formula:
             formulas[rule.legal_id] = rule.formula
-    _graph_cache[program_yaml] = (deps, formulas, rule_id_by_name)
-    return (deps, formulas, rule_id_by_name)
+    _graph_cache[program_yaml] = (rule_deps, input_deps, formulas, rule_id_by_name)
+    return (rule_deps, input_deps, formulas, rule_id_by_name)
 
 
 def _infer_repo(program_yaml: Path) -> str:
@@ -743,6 +1018,14 @@ def _fixture_output_defaults(program_yaml: Path) -> dict[str, Any]:
     return defaults
 
 
+def _fixture_output_defaults_by_legal_id(program_yaml: Path) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in _fixture_output_defaults(program_yaml).items()
+        if "#" in key and "#input." not in key
+    }
+
+
 def _is_engine_scalar_default(raw: Any) -> bool:
     if isinstance(raw, bool | int | float):
         return True
@@ -757,7 +1040,17 @@ def _default_value_for_missing_input(
     program_yaml: Path,
     full_id: str,
     reported_id: str,
+    dynamic_defaults: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    for key in (
+        full_id,
+        reported_id,
+        full_id.split("#")[-1],
+        full_id.split("#")[-1].removeprefix("input."),
+        reported_id.removeprefix("input."),
+    ):
+        if dynamic_defaults and key in dynamic_defaults:
+            return _coerce_value(dynamic_defaults[key])
     defaults = _fixture_output_defaults(program_yaml)
     for key in (
         full_id,
@@ -780,6 +1073,7 @@ def _run_with_missing_input_retries(
     interval_start: str,
     interval_end: str,
     program_yaml: Path,
+    dynamic_defaults: dict[str, Any] | None = None,
     max_retries: int = 300,
 ) -> subprocess.CompletedProcess[str]:
     """Run the engine; on missing-input errors, default the input and retry.
@@ -911,7 +1205,12 @@ def _run_with_missing_input_retries(
                     f"No rule in the program graph references it. Stderr: {stderr.strip()}"
                 )
             chosen = candidates.pop(0)
-            value = _default_value_for_missing_input(program_yaml, chosen, bare_name)
+            value = _default_value_for_missing_input(
+                program_yaml,
+                chosen,
+                bare_name,
+                dynamic_defaults,
+            )
             request_payload["dataset"]["inputs"].append({
                 "name": chosen,
                 "entity": "Household",
@@ -956,7 +1255,12 @@ def _run_with_missing_input_retries(
                 )
 
             rejected_legal_ids.add((full_id, entity_class))
-            value = _default_value_for_missing_input(program_yaml, full_id, reported_id)
+            value = _default_value_for_missing_input(
+                program_yaml,
+                full_id,
+                reported_id,
+                dynamic_defaults,
+            )
 
             if entity_class == "person":
                 # Engine reports one person at a time — fill the default
@@ -1050,6 +1354,11 @@ def execute_demo(
     relations: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Demo-mode fallback: return expected outputs from the program's .test.yaml."""
+    user_inputs, relations = _filter_user_supplied_values(
+        program_yaml,
+        user_inputs or {},
+        relations,
+    )
     test = find_test_template(program_yaml)
     template = first_test_case(test) if test else None
     expected = dict(iter_outputs_in_template(template))
