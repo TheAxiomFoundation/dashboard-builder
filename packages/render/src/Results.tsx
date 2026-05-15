@@ -687,6 +687,34 @@ function RuleModal({
               </div>
             </section>
           )}
+
+          {!isInput && !current.formula && (
+            <section>
+              <h3 className="rule-modal-section-eyebrow">Current state</h3>
+              <div className="rule-modal-input-summary">
+                <div className="rule-modal-summary-row">
+                  <span className="rule-modal-summary-label">Value</span>
+                  <span className="rule-modal-summary-value">
+                    {formatTraceValue(current)}
+                  </span>
+                </div>
+                {current.source && (
+                  <div className="rule-modal-summary-row">
+                    <span className="rule-modal-summary-label">Source</span>
+                    <span className="rule-modal-summary-value">
+                      § {current.source}
+                    </span>
+                  </div>
+                )}
+                <div className="rule-modal-summary-row">
+                  <span className="rule-modal-summary-label">Trace</span>
+                  <span className="rule-modal-summary-value">
+                    No formula or dependencies returned
+                  </span>
+                </div>
+              </div>
+            </section>
+          )}
         </div>
 
         {!isInput && (
