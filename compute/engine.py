@@ -15,6 +15,7 @@ We support two modes, picked at runtime:
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import subprocess
@@ -798,6 +799,7 @@ def _run_with_missing_input_retries(
     # default under one scope doesn't preempt a retry under the other.
     rejected_legal_ids: set[tuple[str, str]] = set()
     pending_candidates: dict[str, list[str]] = {}
+    dropped_rejected_absolute_inputs: set[str] = set()
     # Track records by (name, entity_id) so we don't mark a per-member input
     # as "tried" after flipping just one member — every relation member is a
     # separate record with the same name but different entity_id.
@@ -882,11 +884,21 @@ def _run_with_missing_input_retries(
             ]
             rejected_legal_ids.add((bare_name, "bare"))
 
+            # Some engine builds report an already-qualified fixture record as
+            # needing an absolute RuleSpec reference. In that case the record
+            # itself is what the engine rejects. Drop it once and retry; if the
+            # rule actually needs the value, the next run will produce a normal
+            # missing-input error and the branch below will fill a default.
+            if "#input." in bare_name and bare_name not in dropped_rejected_absolute_inputs:
+                dropped_rejected_absolute_inputs.add(bare_name)
+                continue
+
             if bare_name not in pending_candidates:
                 try:
+                    lookup_name = bare_name.split("#input.", 1)[-1]
                     pending_candidates[bare_name] = [
                         candidate
-                        for candidate in resolve_input_legal_id(_graph(), bare_name)
+                        for candidate in resolve_input_legal_id(_graph(), lookup_name)
                         if candidate != bare_name
                     ]
                 except Exception:
@@ -1010,7 +1022,9 @@ def _ensure_compiled(binary: str, program_yaml: Path) -> Path:
         return _compile_cache[program_yaml]
     artifact_dir = Path(__file__).parent / "artifacts"
     artifact_dir.mkdir(exist_ok=True)
-    artifact = artifact_dir / (program_yaml.stem + ".compiled.json")
+    program_key = str(program_yaml.resolve())
+    program_hash = hashlib.sha256(program_key.encode("utf-8")).hexdigest()[:12]
+    artifact = artifact_dir / f"{program_yaml.stem}-{program_hash}.compiled.json"
     rules_root = Path(os.environ.get("AXIOM_RULESPEC_ROOT", program_yaml.parents[1]))
     env = dict(os.environ)
     env.setdefault("AXIOM_RULESPEC_REPO_ROOTS", str(rules_root))
