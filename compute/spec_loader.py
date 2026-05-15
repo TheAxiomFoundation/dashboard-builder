@@ -2,8 +2,8 @@
 
 Kept deliberately small: the spec is the source of truth for which inputs the
 user sees and which outputs the dashboard queries. The rule pack is the source
-of truth for *every other* input the program needs to compute those outputs.
-This module reads both and merges them into a flat dataset the engine accepts.
+of truth for what the program can compute. Runtime values come from the user
+payload plus neutral dtype defaults for anything omitted.
 """
 
 from __future__ import annotations
@@ -68,14 +68,13 @@ def merge_with_template(
     user_inputs: dict[str, Any],
     relations: dict[str, list[dict[str, Any]]] | None,
 ) -> dict[str, Any]:
-    """Merge user-entered values onto the test template's inputs.
+    """Return user-entered values in the flat shape the engine accepts.
 
-    The renderer only sends the inputs the dashboard exposes; everything else
-    falls back to the template so the engine has every fact it needs.
+    The `.test.yaml` fixture is for tests and demos, not runtime assumptions.
+    Anything the renderer omits is filled later by the missing-input retry
+    path using neutral dtype defaults, so "not provided" means zero/false.
     """
     base: dict[str, Any] = {}
-    if template:
-        base = dict(template.get("input", {}))
 
     # Overlay scalar inputs.
     for legal_id, value in user_inputs.items():
@@ -86,12 +85,7 @@ def merge_with_template(
     # Overlay relations: each relation legal id maps to a list of per-member dicts.
     if relations:
         for relation_id, members in relations.items():
-            template_members = base.get(relation_id) if isinstance(base.get(relation_id), list) else []
-            template_member = template_members[0] if template_members else {}
-            merged_members: list[dict[str, Any]] = []
-            for member in members:
-                merged_members.append({**template_member, **member})
-            base[relation_id] = merged_members
+            base[relation_id] = list(members)
 
     return base
 

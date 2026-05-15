@@ -529,14 +529,13 @@ def _fixture_outputs_for_trace(
     program_yaml: Path,
     dynamic_defaults: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    outputs = dict(_fixture_output_defaults_by_legal_id(program_yaml))
-    if dynamic_defaults:
-        outputs.update({
-            key: value
-            for key, value in dynamic_defaults.items()
-            if "#" in key and "#input." not in key
-        })
-    return outputs
+    if not dynamic_defaults:
+        return {}
+    return {
+        key: value
+        for key, value in dynamic_defaults.items()
+        if "#" in key and "#input." not in key
+    }
 
 
 def _build_trace_tree(
@@ -623,8 +622,8 @@ def execute_real(
 
     On failure we automatically isolate: compute outputs one at a time so a
     single broken output doesn't kill the whole batch. The good ones return
-    real engine values; the failures fall back to test-fixture values with a
-    per-output warning naming the engine error.
+    real engine values; failures return neutral defaults with a per-output
+    warning naming the engine error.
     """
     user_inputs, relations = _filter_user_supplied_values(
         program_yaml,
@@ -660,7 +659,7 @@ def _execute_real_isolated(
     period: str,
     batch_error: str,
 ) -> dict[str, Any]:
-    """Compute each queried output independently. Fall back to fixture for failures."""
+    """Compute each queried output independently. Fall back to neutral defaults."""
     template = first_test_case(t) if (t := find_test_template(program_yaml)) else None
     expected = dict(iter_outputs_in_template(template))
 
@@ -681,21 +680,16 @@ def _execute_real_isolated(
             traces.update(single.get("traces", {}))
         except RuntimeError:
             failed_outputs.append(legal_id)
-            # Fall back to fixture value if available, marked clearly.
-            if legal_id in expected:
-                raw = expected[legal_id]
-                if isinstance(raw, str) and raw in {"holds", "not_holds", "undetermined"}:
-                    outputs.append({"legalId": legal_id, "value": raw, "dtype": "judgment"})
-                else:
-                    outputs.append({"legalId": legal_id, "value": raw, "dtype": "decimal"})
-                traces[legal_id] = {
-                    "legalId": legal_id,
-                    "label": legal_id.split("#")[-1],
-                    "value": raw,
-                    "dtype": "judgment" if isinstance(raw, str) else "decimal",
-                    "source": "engine couldn't compute live; using test-fixture value",
-                    "children": [],
-                }
+            fallback = _neutral_output_fallback(legal_id, expected.get(legal_id))
+            outputs.append(fallback)
+            traces[legal_id] = {
+                "legalId": legal_id,
+                "label": legal_id.split("#")[-1],
+                "value": fallback["value"],
+                "dtype": fallback["dtype"],
+                "source": "engine couldn't compute live; using neutral default",
+                "children": [],
+            }
 
     user_keys = _collect_user_keys(user_inputs, relations)
     template_inputs = template.get("input", {}) if template else {}
@@ -707,7 +701,7 @@ def _execute_real_isolated(
         warnings.append(
             f"engine couldn't compute {len(failed_outputs)} output(s) ({names}"
             f"{'…' if len(failed_outputs) > 5 else ''}). "
-            f"Showing test-fixture values instead. "
+            f"Showing neutral defaults instead. "
             f"Underlying error: {batch_error[:300]}"
         )
     return {
@@ -716,6 +710,14 @@ def _execute_real_isolated(
         "coverage": coverage,
         "warnings": warnings,
     }
+
+
+def _neutral_output_fallback(legal_id: str, sample: Any) -> dict[str, Any]:
+    if isinstance(sample, str) and sample in {"holds", "not_holds", "undetermined"}:
+        return {"legalId": legal_id, "value": "not_holds", "dtype": "judgment"}
+    if isinstance(sample, bool):
+        return {"legalId": legal_id, "value": False, "dtype": "bool"}
+    return {"legalId": legal_id, "value": 0, "dtype": "decimal"}
 
 
 def _execute_real_batch(
@@ -948,6 +950,53 @@ def _infer_repo(program_yaml: Path) -> str:
     return ""
 
 
+_input_fixture_id_cache: dict[Path, dict[str, list[str]]] = {}
+
+
+def _fixture_input_candidates(program_yaml: Path, input_name: str) -> list[str]:
+    """Find legal IDs for imported inputs that graph parsing did not index."""
+    root = _rules_workspace_root(program_yaml)
+    if root not in _input_fixture_id_cache:
+        pattern = re.compile(
+            r"([A-Za-z0-9_-]+:[^\s:#]+(?:/[^\s:#]+)*#input\.[A-Za-z0-9_]+)\s*:"
+        )
+        by_name: dict[str, list[str]] = {}
+        for repo in root.iterdir() if root.exists() else []:
+            if not repo.is_dir() or not repo.name.startswith(("rules-", "rulespec-")):
+                continue
+            for test_file in repo.rglob("*.test.yaml"):
+                try:
+                    text = test_file.read_text()
+                except OSError:
+                    continue
+                for legal_id in pattern.findall(text):
+                    name = legal_id.split("#input.", 1)[-1]
+                    by_name.setdefault(name, [])
+                    if legal_id not in by_name[name]:
+                        by_name[name].append(legal_id)
+        _input_fixture_id_cache[root] = by_name
+    return _input_fixture_id_cache[root].get(input_name, [])
+
+
+def _unique_candidates(candidates: list[str], exclude: set[str] | None = None) -> list[str]:
+    excluded = exclude or set()
+    seen: set[str] = set()
+    unique: list[str] = []
+    for candidate in candidates:
+        if candidate in excluded or candidate in seen:
+            continue
+        seen.add(candidate)
+        unique.append(candidate)
+    return unique
+
+
+def _rules_workspace_root(program_yaml: Path) -> Path:
+    for parent in program_yaml.resolve().parents:
+        if parent.name.startswith(("rules-", "rulespec-")):
+            return parent.parent
+    return program_yaml.resolve().parent
+
+
 _MISSING_INPUT_RE = re.compile(
     r"missing input `([^`]+)`(?: for entity `([^`]+)`)?"
 )
@@ -964,7 +1013,12 @@ def _infer_default_value(legal_id: str) -> dict[str, Any]:
     test-fixture forgot to enumerate.
     """
     fragment = legal_id.split("#")[-1].removeprefix("input.").lower()
-    boolean_starts = ("is_", "has_", "was_", "were_", "does_", "do_", "will_", "should_", "can_", "must_")
+    boolean_starts = (
+        "is_", "has_", "was_", "were_", "does_", "do_", "will_", "should_",
+        "can_", "must_", "member_is_", "member_has_", "household_is_",
+        "household_has_", "household_pays_", "household_received_",
+        "household_contains_", "resource_is_",
+    )
     boolean_endings = (
         "_eligible", "_active", "_received", "_paid", "_applies",
         "_required", "_present", "_member", "_holds", "_passed",
@@ -977,6 +1031,7 @@ def _infer_default_value(legal_id: str) -> dict[str, Any]:
     boolean_contains = (
         "_entitled_to_", "_eligible_for_", "_subject_to_",
         "_responsible_for_", "_required_to_", "_exempt_from_",
+        "_is_", "_has_",
     )
     if (
         fragment.startswith(boolean_starts)
@@ -988,6 +1043,102 @@ def _infer_default_value(legal_id: str) -> dict[str, Any]:
     if "date" in fragment:
         return {"kind": "date", "value": "2026-01-01"}
     return {"kind": "decimal", "value": "0"}
+
+
+_fixture_input_default_cache: dict[Path, dict[str, dict[str, Any]]] = {}
+_workspace_fixture_input_default_cache: dict[Path, dict[str, dict[str, Any]]] = {}
+
+
+def _fixture_input_defaults(program_yaml: Path) -> dict[str, dict[str, Any]]:
+    """Neutral defaults keyed by legal ID and bare name, using fixtures for dtype only."""
+    if program_yaml in _fixture_input_default_cache:
+        return _fixture_input_default_cache[program_yaml]
+
+    template = first_test_case(t) if (t := find_test_template(program_yaml)) else None
+    defaults: dict[str, dict[str, Any]] = {}
+    if template:
+        for legal_id, raw in _iter_fixture_inputs(template.get("input", {})):
+            default = _neutral_default_for_fixture_input(legal_id, raw)
+            fragment = legal_id.split("#")[-1]
+            defaults.setdefault(legal_id, default)
+            defaults.setdefault(fragment, default)
+            defaults.setdefault(fragment.removeprefix("input."), default)
+
+    _fixture_input_default_cache[program_yaml] = defaults
+    return defaults
+
+
+def _workspace_fixture_input_defaults(program_yaml: Path) -> dict[str, dict[str, Any]]:
+    """Neutral input defaults inferred from every local rule-pack test fixture."""
+    root = _rules_workspace_root(program_yaml)
+    if root in _workspace_fixture_input_default_cache:
+        return _workspace_fixture_input_default_cache[root]
+
+    defaults: dict[str, dict[str, Any]] = {}
+    for repo in root.iterdir() if root.exists() else []:
+        if not repo.is_dir() or not repo.name.startswith(("rules-", "rulespec-")):
+            continue
+        for test_file in repo.rglob("*.test.yaml"):
+            try:
+                raw = yaml.safe_load(test_file.read_text())
+            except (OSError, yaml.YAMLError):
+                continue
+            for case in _fixture_cases(raw):
+                for legal_id, value in _iter_fixture_inputs(case.get("input", {})):
+                    default = _neutral_default_for_fixture_input(legal_id, value)
+                    fragment = legal_id.split("#")[-1]
+                    defaults.setdefault(legal_id, default)
+                    defaults.setdefault(fragment, default)
+                    defaults.setdefault(fragment.removeprefix("input."), default)
+
+    _workspace_fixture_input_default_cache[root] = defaults
+    return defaults
+
+
+def _fixture_cases(raw: Any) -> list[dict[str, Any]]:
+    if isinstance(raw, list):
+        return [case for case in raw if isinstance(case, dict)]
+    if isinstance(raw, dict) and isinstance(raw.get("cases"), list):
+        return [case for case in raw["cases"] if isinstance(case, dict)]
+    if isinstance(raw, dict):
+        return [raw]
+    return []
+
+
+def _iter_fixture_inputs(raw_inputs: Any) -> list[tuple[str, Any]]:
+    items: list[tuple[str, Any]] = []
+    if not isinstance(raw_inputs, dict):
+        return items
+    for legal_id, raw in raw_inputs.items():
+        if is_relation_id(legal_id):
+            if isinstance(raw, list):
+                for member in raw:
+                    items.extend(_iter_fixture_inputs(member))
+            continue
+        items.append((legal_id, raw))
+    return items
+
+
+def _neutral_default_for_fixture_input(legal_id: str, raw: Any) -> dict[str, Any]:
+    fragment = legal_id.split("#")[-1].removeprefix("input.")
+    if fragment in {"member_is_us_citizen"}:
+        return {"kind": "bool", "value": True}
+    if fragment in {
+        "self_employment_income_period_months",
+        "real_property_assessment_percentage_rate",
+    }:
+        return {"kind": "integer", "value": 1}
+    if isinstance(raw, bool):
+        return {"kind": "bool", "value": False}
+    if isinstance(raw, int):
+        return {"kind": "integer", "value": 0}
+    if isinstance(raw, float):
+        return {"kind": "decimal", "value": "0"}
+    if isinstance(raw, str) and len(raw) == 10 and raw[4] == "-" and raw[7] == "-":
+        return {"kind": "date", "value": raw}
+    if isinstance(raw, str):
+        return {"kind": "text", "value": ""}
+    return _infer_default_value(legal_id)
 
 
 _fixture_output_default_cache: dict[Path, dict[str, Any]] = {}
@@ -1051,16 +1202,10 @@ def _default_value_for_missing_input(
     ):
         if dynamic_defaults and key in dynamic_defaults:
             return _coerce_value(dynamic_defaults[key])
-    defaults = _fixture_output_defaults(program_yaml)
-    for key in (
-        full_id,
-        reported_id,
-        full_id.split("#")[-1],
-        full_id.split("#")[-1].removeprefix("input."),
-        reported_id.removeprefix("input."),
-    ):
-        if key in defaults:
-            return _coerce_value(defaults[key])
+        if key in _fixture_input_defaults(program_yaml):
+            return _fixture_input_defaults(program_yaml)[key]
+        if key in _workspace_fixture_input_defaults(program_yaml):
+            return _workspace_fixture_input_defaults(program_yaml)[key]
     return _infer_default_value(full_id)
 
 
@@ -1190,11 +1335,13 @@ def _run_with_missing_input_retries(
             if bare_name not in pending_candidates:
                 try:
                     lookup_name = bare_name.split("#input.", 1)[-1]
-                    pending_candidates[bare_name] = [
-                        candidate
-                        for candidate in resolve_input_legal_id(_graph(), lookup_name)
-                        if candidate != bare_name
-                    ]
+                    pending_candidates[bare_name] = _unique_candidates(
+                        [
+                            *resolve_input_legal_id(_graph(), lookup_name),
+                            *_fixture_input_candidates(program_yaml, lookup_name),
+                        ],
+                        exclude={bare_name},
+                    )
                 except Exception:
                     pending_candidates[bare_name] = []
 
@@ -1232,10 +1379,11 @@ def _run_with_missing_input_retries(
             else:
                 if reported_id not in pending_candidates:
                     try:
-                        pending_candidates[reported_id] = [
-                            reported_id,
+                        resolved = _unique_candidates([
                             *resolve_input_legal_id(_graph(), reported_id),
-                        ]
+                            *_fixture_input_candidates(program_yaml, reported_id),
+                        ])
+                        pending_candidates[reported_id] = resolved or [reported_id]
                     except Exception:
                         pending_candidates[reported_id] = [reported_id]
                 full_candidates = pending_candidates[reported_id]
