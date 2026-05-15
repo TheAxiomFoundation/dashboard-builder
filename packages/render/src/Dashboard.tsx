@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ComputeCoverage,
   DashboardSpec,
@@ -99,10 +99,13 @@ export function Dashboard({
   const [coverage, setCoverage] = useState<ComputeCoverage | undefined>(undefined);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [mode, setMode] = useState<string>("");
+  const [computeQueued, setComputeQueued] = useState(false);
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const computeSeq = useRef(0);
 
   const groups = useMemo(() => orderedGroups(spec), [spec]);
+  const computeBusy = computeQueued || computing;
 
   useEffect(() => {
     setState(initialState(spec));
@@ -110,27 +113,35 @@ export function Dashboard({
 
   useEffect(() => {
     if (!autoCompute) return;
+    const runId = computeSeq.current + 1;
+    computeSeq.current = runId;
+    setComputeQueued(true);
     const handle = window.setTimeout(() => {
-      void runCompute();
+      setComputeQueued(false);
+      void runCompute(runId);
     }, 250);
     return () => window.clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, spec]);
 
-  async function runCompute() {
+  async function runCompute(runId = computeSeq.current + 1) {
+    computeSeq.current = runId;
+    setComputeQueued(false);
     setComputing(true);
     setError(null);
     try {
       const res = await callCompute(spec, state, computeUrl);
+      if (runId !== computeSeq.current) return;
       setOutputs(res.outputs);
       setTraces(res.traces);
       setCoverage(res.coverage);
       setWarnings(res.warnings ?? []);
       setMode(res.mode);
     } catch (e) {
+      if (runId !== computeSeq.current) return;
       setError(String(e));
     } finally {
-      setComputing(false);
+      if (runId === computeSeq.current) setComputing(false);
     }
   }
 
@@ -180,6 +191,7 @@ export function Dashboard({
   if (previewMode === "structure") {
     return (
       <div className={variant === "embedded" ? "dashboard embedded" : "dashboard"}>
+        {computeBusy && <ComputeStatus />}
         {error && <div className="warning">{error}</div>}
         {warnings
           .filter((w) => !w.toLowerCase().includes("demo mode"))
@@ -302,13 +314,14 @@ export function Dashboard({
 
           {!autoCompute && (
             <div style={{ marginTop: 12 }}>
-              <button className="btn primary" onClick={runCompute} disabled={computing}>
+              <button className="btn primary" onClick={() => void runCompute()} disabled={computing}>
                 {computing ? "Computing…" : "Compute"}
               </button>
             </div>
           )}
         </div>
 
+        {computeBusy && <ComputeStatus />}
         <Results
           spec={spec}
           outputs={outputs}
@@ -323,6 +336,15 @@ export function Dashboard({
           selectedOutputIds={selectedOutputIds}
         />
       </div>
+    </div>
+  );
+}
+
+function ComputeStatus() {
+  return (
+    <div className="compute-status" role="status" aria-live="polite">
+      <span className="compute-spinner" aria-hidden="true" />
+      <span>Calculating</span>
     </div>
   );
 }

@@ -36,6 +36,7 @@ from spec_loader import (
     first_test_case,
     is_input_id,
     is_relation_id,
+    iter_outputs_in_template,
 )
 
 # RuleSpec language reserved words and builtins. Anything appearing in a formula
@@ -262,6 +263,61 @@ def _terminal_outputs(rules: dict[str, RuleNode]) -> list[str]:
     return sorted(rid for rid in rules if rid not in referenced)
 
 
+def _dtype_for_fixture_value(value: Any) -> str:
+    """Best-effort dtype for fixture-only outputs synthesized into the graph."""
+    if isinstance(value, bool):
+        return "Boolean"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return "Integer"
+    if isinstance(value, float):
+        return "Decimal"
+    if isinstance(value, str):
+        if value in {"holds", "not_holds", "undetermined"}:
+            return "Judgment"
+        if len(value) == 10 and value[4] == "-" and value[7] == "-":
+            return "Date"
+        return "String"
+    return "Decimal"
+
+
+def _add_fixture_outputs_to_index(
+    template: dict[str, Any] | None,
+    rules: dict[str, RuleNode],
+    rule_local_index: dict[str, list[RuleNode]],
+) -> None:
+    """Index output values present only in the test fixture.
+
+    Some composed programs bridge a generic statutory "input" with a concrete
+    upstream output supplied by the program fixture. If the graph ignores that
+    fixture-only output, formula parsing later synthesizes a fake #input node
+    and the UI offers a computed intermediate as a user question.
+    """
+    if not template:
+        return
+    for legal_id, value in iter_outputs_in_template(template):
+        if not isinstance(legal_id, str) or "#" not in legal_id:
+            continue
+        if is_input_id(legal_id) or is_relation_id(legal_id):
+            continue
+        if legal_id in rules:
+            continue
+        file_part, _, name = legal_id.partition("#")
+        if not name:
+            continue
+        node = RuleNode(
+            legal_id=legal_id,
+            name=name,
+            file_legal_id=file_part,
+            kind="derived",
+            entity="Household",
+            dtype=_dtype_for_fixture_value(value),
+            source="Fixture output",
+            formula="",
+        )
+        rules[legal_id] = node
+        rule_local_index.setdefault(name, []).append(node)
+
+
 def build_graph(program_yaml: Path, repo: str) -> ProgramGraph:
     """Construct the full rule + input + relation graph for a program."""
     resolved_program = program_yaml.resolve()
@@ -337,6 +393,8 @@ def build_graph(program_yaml: Path, repo: str) -> ProgramGraph:
                     entity="Person" if relation_id else "Household",
                     relation_legal_id=relation_id,
                 )
+
+    _add_fixture_outputs_to_index(template, rules, rule_local_index)
 
     input_local_index: dict[str, list[InputNode]] = {}
     for inp in inputs.values():

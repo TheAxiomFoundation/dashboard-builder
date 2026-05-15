@@ -17,7 +17,10 @@ sys.path.insert(0, str(COMPUTE_ROOT))
 from engine import (
     _alternate_query_reference,
     _artifact_derived_id_cache,
+    _build_trace_tree,
     _compile_cache,
+    _dynamic_input_defaults,
+    _filter_user_supplied_values,
     _query_reference,
     execute_real,
 )
@@ -62,6 +65,137 @@ class OutputQueryReferenceTest(unittest.TestCase):
             _alternate_query_reference(SNAP_ALLOTMENT, SNAP_ALLOTMENT),
             "snap_allotment",
         )
+
+
+class FixtureOutputGraphTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name) / "rulespec-test"
+        self.repo.mkdir()
+        self.program = self.repo / "program.yaml"
+        self.program.write_text(
+            """
+format: rulespec/v1
+rules:
+  - name: final_benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: Test program
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, base_amount - computed_deduction)
+""".lstrip()
+        )
+        self.program.with_name("program.test.yaml").write_text(
+            """
+- name: fixture
+  period: 2026-01
+  input:
+    test:program#input.base_amount: 100
+  output:
+    test:program#computed_deduction: 40
+    test:program#final_benefit: 60
+""".lstrip()
+        )
+
+    def test_fixture_only_output_is_rule_dependency_not_input(self) -> None:
+        graph = build_graph(self.program, "rulespec-test")
+
+        final = graph.rules["test:program#final_benefit"]
+        self.assertIn("test:program#computed_deduction", final.rule_deps)
+        self.assertNotIn("test:program#input.computed_deduction", final.input_deps)
+        self.assertIn("test:program#computed_deduction", graph.rules)
+
+    def test_trace_renders_fixture_only_output_as_non_input_child(self) -> None:
+        traces = _build_trace_tree(
+            ["test:program#final_benefit"],
+            {
+                "test:program#final_benefit": {
+                    "name": "final_benefit",
+                    "value": {"kind": "decimal", "value": "60"},
+                    "dependencies": [],
+                }
+            },
+            {"test:program#input.base_amount": 100},
+            set(),
+            {"test:program#final_benefit": ["test:program#computed_deduction"]},
+            {"test:program#final_benefit": ["test:program#input.base_amount"]},
+            {"test:program#final_benefit": "max(0, base_amount - computed_deduction)"},
+            {"test:program#computed_deduction": 40},
+        )
+
+        children = traces["test:program#final_benefit"]["children"]
+        by_id = {child["legalId"]: child for child in children}
+        self.assertEqual(by_id["test:program#computed_deduction"]["dtype"], "integer")
+        self.assertEqual(by_id["test:program#input.base_amount"]["dtype"], "input")
+
+    def test_user_values_for_computed_outputs_are_dropped(self) -> None:
+        inputs, relations = _filter_user_supplied_values(
+            self.program,
+            {
+                "test:program#input.base_amount": 100,
+                "test:program#input.computed_deduction": 999,
+                "test:program#computed_deduction": 999,
+            },
+            None,
+        )
+
+        self.assertEqual(inputs, {"test:program#input.base_amount": 100})
+        self.assertIsNone(relations)
+
+
+class ColoradoSnapIncomeBridgeTest(unittest.TestCase):
+    def test_employee_wages_drive_generic_federal_income_defaults(self) -> None:
+        program = Path("/tmp/rules-us-co/policies/cdhs/snap/fy-2026-benefit-calculation.yaml")
+        flat = {
+            "us-co:regulations/10-ccr-2506-1/4.403#input.higher_education_state_work_study_or_work_requirement_fellowship_income": False,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.employee_wages_received": 1500,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.garnished_or_diverted_wages_for_household_expenses": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.wages_held_at_employee_request_that_would_have_been_paid": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.wages_previously_withheld_by_employer_general_practice_received": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.reasonably_anticipated_wage_advances_received": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.household_vista_or_title_i_domestic_volunteer_earned_income": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.household_training_allowance_earned_income": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.household_wioa_ojt_earned_income": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.person_still_employed_when_sick_vacation_or_bonus_pay_received": False,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.sick_vacation_or_bonus_pay_received": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.average_rental_property_management_hours_per_week": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.rental_property_gross_income": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.rental_property_business_costs": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.household_llc_s_corporation_owner_earned_income": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403.2#input.boarder_payments_for_room_meals_and_shelter_contributions": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403.2#input.actual_documented_boarder_room_and_meal_costs": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403.2#input.boarder_income_is_foster_care_payment": False,
+            "us-co:regulations/10-ccr-2506-1/4.403.11#input.self_employment_gross_income_for_period": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403.11#input.self_employment_capital_gains_for_period": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403.11#input.allowable_self_employment_business_costs_for_period": 0,
+            "us-co:regulations/10-ccr-2506-1/4.403#input.capital_goods_services_or_property_sale_proceeds_connected_to_self_employment": 0,
+        }
+
+        defaults = _dynamic_input_defaults(program, flat)
+
+        self.assertEqual(defaults["snap_gross_monthly_income"], 1500)
+        self.assertEqual(defaults["snap_monthly_household_income"], 1500)
+        self.assertEqual(
+            defaults["us:regulations/7-cfr/273/9#input.snap_gross_monthly_income"],
+            1500,
+        )
+        self.assertEqual(
+            defaults["us:statutes/7/2014/e/6/A#input.snap_monthly_household_income"],
+            1500,
+        )
+
+    def test_income_bridge_does_not_apply_to_other_programs(self) -> None:
+        defaults = _dynamic_input_defaults(
+            Path("/tmp/rules-us-co/policies/cdhs/snap/other.yaml"),
+            {},
+        )
+
+        self.assertEqual(defaults, {})
 
 
 class RealSnapEngineSmokeTest(unittest.TestCase):
@@ -198,8 +332,7 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
                     rules_root=self.rules_root,
                     user_inputs={
                         "us-co:regulations/10-ccr-2506-1/4.207.3#input.household_size": 3,
-                        "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income": 1500,
-                        "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income": 1500,
+                        "us-co:regulations/10-ccr-2506-1/4.403#input.employee_wages_received": 1500,
                     },
                     relations=None,
                     queried_outputs=[SNAP_ALLOTMENT],
@@ -213,7 +346,7 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
             output.get("legalId"): output.get("value")
             for output in payload.get("outputs", [])
         }
-        self.assertEqual(outputs.get(SNAP_ALLOTMENT), 680.0)
+        self.assertEqual(outputs.get(SNAP_ALLOTMENT), 710)
 
 
 if __name__ == "__main__":
