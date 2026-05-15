@@ -583,7 +583,7 @@ export function App() {
             aria-hidden="true"
           />
           <span className="brand-title">
-            Axiom · <strong>Dashboard Builder</strong>
+            Axiom · <strong>Form Builder</strong>
           </span>
         </div>
         <StepIndicator current={stepId} draft={draft} onJump={jumpTo} />

@@ -43,12 +43,12 @@ export function App() {
       <header className="shell-header">
         <span className="shell-mark">∀</span>
         <div className="shell-meta">
-          <span className="eyebrow">Axiom dashboard</span>
+          <span className="eyebrow">Axiom form</span>
           <span className="source">source: <code>{source}</code></span>
         </div>
         <div className="shell-actions">
-          <a className="btn secondary" href={builderUrl} title="Open the dashboard builder">
-            ← Builder
+          <a className="btn secondary" href={builderUrl} title="Open the form builder">
+            ← Form Builder
           </a>
         </div>
       </header>
