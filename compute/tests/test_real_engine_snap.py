@@ -20,16 +20,48 @@ from engine import (
     _build_trace_tree,
     _compile_cache,
     _dynamic_input_defaults,
+    _fixture_input_default_cache,
     _filter_user_supplied_values,
     _query_reference,
+    _workspace_fixture_input_default_cache,
     execute_real,
 )
 from graph import build_graph
 
 
-SNAP_PROGRAM = Path("rules-us-co/policies/cdhs/snap/fy-2026-benefit-calculation.yaml")
+SNAP_PROGRAM = Path("policies/cdhs/snap/fy-2026-benefit-calculation.yaml")
 SNAP_ELIGIBLE = "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_eligible"
 SNAP_ALLOTMENT = "us-co:regulations/10-ccr-2506-1/4.207.2#snap_allotment"
+HOUSEHOLD_SIZE = "us-co:regulations/10-ccr-2506-1/4.207.3#input.household_size"
+HOUSEHOLD_LIVES_IN_APPLICATION_STATE = (
+    "us:regulations/7-cfr/273/3#input.household_lives_in_application_state"
+)
+HOUSEHOLD_IN_PROJECT_AREA_SOLELY_FOR_VACATION = (
+    "us:regulations/7-cfr/273/3#input.household_in_project_area_solely_for_vacation"
+)
+HOUSEHOLD_CONTAINS_DUPLICATE_PARTICIPANT = (
+    "us:regulations/7-cfr/273/3#input."
+    "household_contains_individual_participating_in_more_than_one_household_or_project_area"
+)
+EMPLOYEE_WAGES_RECEIVED = (
+    "us-co:regulations/10-ccr-2506-1/4.403#input.employee_wages_received"
+)
+LIQUID_RESOURCE_CURRENT_REDEMPTION_RATE = (
+    "us-co:regulations/10-ccr-2506-1/4.408.1#input."
+    "liquid_resource_current_redemption_rate"
+)
+NON_LIQUID_RESOURCE_MARKET_VALUE = (
+    "us-co:regulations/10-ccr-2506-1/4.408.1#input.non_liquid_resource_market_value"
+)
+OTHER_HOUSEHOLD_RESOURCE_VALUE = (
+    "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#input."
+    "other_household_resource_value"
+)
+MEMBER_OF_HOUSEHOLD = "us:statutes/7/2012/j#relation.member_of_household"
+MEMBER_REFUSED_OR_FAILED_TO_PROVIDE_OR_APPLY_FOR_SSN = (
+    "us:regulations/7-cfr/273/6#input."
+    "member_refused_or_failed_to_provide_or_apply_for_ssn"
+)
 
 
 class OutputQueryReferenceTest(unittest.TestCase):
@@ -220,7 +252,12 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
 
         root = Path(os.environ.get("AXIOM_RULESPEC_ROOT", self.compute_root.parents[1]))
         self.rules_root = root.expanduser().resolve()
-        self.program_yaml = self.rules_root / SNAP_PROGRAM
+        colorado_rules = (
+            self.rules_root / "rules-us-co"
+            if (self.rules_root / "rules-us-co").exists()
+            else self.rules_root / "rulespec-us-co"
+        )
+        self.program_yaml = colorado_rules / SNAP_PROGRAM
         if not self.program_yaml.exists():
             self.skipTest(f"SNAP rule program does not exist: {self.program_yaml}")
 
@@ -228,7 +265,8 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.alias_root = Path(self.tmp.name)
         (self.alias_root / "_axiom").mkdir()
-        self._alias("rulespec-us-co", self.rules_root / "rules-us-co")
+        self._alias("rulespec-us-co", colorado_rules)
+        self._alias("rules-us-co", colorado_rules)
         federal_rules = (
             self.rules_root / "rulespec-us"
             if (self.rules_root / "rulespec-us").exists()
@@ -295,6 +333,8 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
     def test_snap_baseline_compute_does_not_fall_back_to_fixture(self) -> None:
         _compile_cache.clear()
         _artifact_derived_id_cache.clear()
+        _fixture_input_default_cache.clear()
+        _workspace_fixture_input_default_cache.clear()
 
         old_cwd = Path.cwd()
         try:
@@ -311,17 +351,19 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
         finally:
             os.chdir(old_cwd)
 
-        self.assertEqual(payload.get("warnings", []), [])
         outputs = {
             output.get("legalId"): output.get("value")
             for output in payload.get("outputs", [])
         }
-        self.assertEqual(outputs.get(SNAP_ELIGIBLE), "holds")
-        self.assertEqual(outputs.get(SNAP_ALLOTMENT), 298)
+        self.assertIn("neutral defaults", " ".join(payload.get("warnings", [])))
+        self.assertEqual(outputs.get(SNAP_ELIGIBLE), "not_holds")
+        self.assertEqual(outputs.get(SNAP_ALLOTMENT), 0)
 
     def test_snap_allotment_user_inputs_compute_live(self) -> None:
         _compile_cache.clear()
         _artifact_derived_id_cache.clear()
+        _fixture_input_default_cache.clear()
+        _workspace_fixture_input_default_cache.clear()
 
         old_cwd = Path.cwd()
         try:
@@ -331,10 +373,19 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
                     program_yaml=self.program_yaml,
                     rules_root=self.rules_root,
                     user_inputs={
-                        "us-co:regulations/10-ccr-2506-1/4.207.3#input.household_size": 3,
-                        "us-co:regulations/10-ccr-2506-1/4.403#input.employee_wages_received": 1500,
+                        HOUSEHOLD_SIZE: 3,
+                        HOUSEHOLD_LIVES_IN_APPLICATION_STATE: True,
+                        HOUSEHOLD_IN_PROJECT_AREA_SOLELY_FOR_VACATION: False,
+                        HOUSEHOLD_CONTAINS_DUPLICATE_PARTICIPANT: False,
+                        EMPLOYEE_WAGES_RECEIVED: 1500,
                     },
-                    relations=None,
+                    relations={
+                        MEMBER_OF_HOUSEHOLD: [
+                            {MEMBER_REFUSED_OR_FAILED_TO_PROVIDE_OR_APPLY_FOR_SSN: False},
+                            {MEMBER_REFUSED_OR_FAILED_TO_PROVIDE_OR_APPLY_FOR_SSN: False},
+                            {MEMBER_REFUSED_OR_FAILED_TO_PROVIDE_OR_APPLY_FOR_SSN: False},
+                        ]
+                    },
                     queried_outputs=[SNAP_ALLOTMENT],
                     period="2026-01",
                 )
@@ -346,7 +397,58 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
             output.get("legalId"): output.get("value")
             for output in payload.get("outputs", [])
         }
-        self.assertEqual(outputs.get(SNAP_ALLOTMENT), 710)
+        self.assertEqual(outputs.get(SNAP_ALLOTMENT), 487)
+
+    def test__given_form_builder_wages_without_shelter__then_missing_amounts_are_zero(self) -> None:
+        _compile_cache.clear()
+        _artifact_derived_id_cache.clear()
+        _fixture_input_default_cache.clear()
+        _workspace_fixture_input_default_cache.clear()
+
+        # Given
+        user_inputs = {
+            HOUSEHOLD_SIZE: 3,
+            HOUSEHOLD_LIVES_IN_APPLICATION_STATE: True,
+            HOUSEHOLD_IN_PROJECT_AREA_SOLELY_FOR_VACATION: False,
+            HOUSEHOLD_CONTAINS_DUPLICATE_PARTICIPANT: False,
+            EMPLOYEE_WAGES_RECEIVED: 1800,
+            LIQUID_RESOURCE_CURRENT_REDEMPTION_RATE: 0,
+            NON_LIQUID_RESOURCE_MARKET_VALUE: 0,
+            OTHER_HOUSEHOLD_RESOURCE_VALUE: 0,
+        }
+        relations = {
+            MEMBER_OF_HOUSEHOLD: [
+                {MEMBER_REFUSED_OR_FAILED_TO_PROVIDE_OR_APPLY_FOR_SSN: False},
+                {MEMBER_REFUSED_OR_FAILED_TO_PROVIDE_OR_APPLY_FOR_SSN: False},
+                {MEMBER_REFUSED_OR_FAILED_TO_PROVIDE_OR_APPLY_FOR_SSN: False},
+            ]
+        }
+
+        # When
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(self.alias_root)
+            with patch.dict(os.environ, self.engine_env, clear=False):
+                payload = execute_real(
+                    program_yaml=self.program_yaml,
+                    rules_root=self.rules_root,
+                    user_inputs=user_inputs,
+                    relations=relations,
+                    queried_outputs=[SNAP_ALLOTMENT],
+                    period="2026-01",
+                )
+        finally:
+            os.chdir(old_cwd)
+
+        # Then
+        self.assertEqual(payload.get("warnings", []), [])
+        outputs = {
+            output.get("legalId"): output.get("value")
+            for output in payload.get("outputs", [])
+        }
+        self.assertEqual(outputs.get(SNAP_ALLOTMENT), 415)
+        self.assertNotEqual(outputs.get(SNAP_ALLOTMENT), 638)
+        self.assertNotEqual(outputs.get(SNAP_ALLOTMENT), 785)
 
 
 if __name__ == "__main__":
