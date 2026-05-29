@@ -354,11 +354,6 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
         label: "Eligibility",
         blurb: "Whether the household appears eligible for CalFresh.",
       },
-      {
-        legalId: "us:regulations/7-cfr/273/10#snap_monthly_allotment",
-        label: "Benefit amount",
-        blurb: "Estimated normal monthly CalFresh amount for the household.",
-      },
     ],
   },
   {
