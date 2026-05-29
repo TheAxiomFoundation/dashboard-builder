@@ -400,7 +400,7 @@ export function OutputStep({
               title: "Estimate benefit amount",
               copy: "Estimate the monthly SNAP amount the household may receive.",
               state: "Amount result",
-              ids: [eligibility.rule.legalId, amount.rule.legalId],
+              ids: [amount.rule.legalId],
             },
           ]
         : null;
