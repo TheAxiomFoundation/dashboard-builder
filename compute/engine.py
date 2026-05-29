@@ -694,16 +694,39 @@ def _static_rule_stub(legal_id: str, meta: dict[str, Any]) -> dict[str, Any]:
     as a muted "not evaluated for this household" sub-rule that's still
     clickable to drill into the rule's own definition.
     """
-    return {
+    formula = meta.get("formula")
+    static_value = (
+        _literal_formula_value(formula)
+        if meta.get("kind") == "parameter"
+        else None
+    )
+    node = {
         "legalId": legal_id,
         "label": meta.get("name") or legal_id.split("#")[-1],
-        "value": None,
+        "value": static_value,
         "dtype": meta.get("dtype") or "judgment",
         "source": meta.get("source"),
-        "formula": meta.get("formula"),
-        "notEvaluated": True,
+        "formula": formula,
         "children": [],
     }
+    if static_value is None and meta.get("kind") != "parameter":
+        node["notEvaluated"] = True
+    return node
+
+
+def _literal_formula_value(formula: Any) -> Any:
+    if not isinstance(formula, str):
+        return None
+    text = formula.strip()
+    if re.fullmatch(r"-?\d+", text):
+        return int(text)
+    if re.fullmatch(r"-?(?:\d+\.\d*|\d*\.\d+)", text):
+        return float(text)
+    if text.lower() == "true":
+        return True
+    if text.lower() == "false":
+        return False
+    return None
 
 
 def _coverage(flat_inputs: dict[str, Any], user_keys: set[str]) -> dict[str, Any]:
@@ -1103,6 +1126,7 @@ def _rule_metadata_for(
             formulas[rule.legal_id] = rule.formula
         rule_meta[rule.legal_id] = {
             "name": rule.name,
+            "kind": rule.kind,
             "dtype": (rule.dtype or "").lower() or "decimal",
             "source": rule.source,
             "formula": rule.formula,

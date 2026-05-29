@@ -254,6 +254,45 @@ class StaticStubFallbackTests(unittest.TestCase):
         self.assertEqual(stub["dtype"], "judgment")
         self.assertEqual(stub["label"], "right_unevaluated")
 
+    def test_static_parameter_dep_surfaces_as_constant_not_unevaluated(self) -> None:
+        traces = _build_trace_tree(
+            ["a:foo#asset_limit"],
+            raw_trace={
+                "a:foo#asset_limit": {
+                    "value": {"kind": "decimal", "value": "3000"},
+                    "dtype": "money",
+                    "name": "asset_limit",
+                    "dependencies": [],
+                },
+            },
+            flat_inputs={},
+            user_keys=set(),
+            rule_rule_deps={
+                "a:foo#asset_limit": ["a:foo#asset_limit_elderly"],
+            },
+            rule_input_deps={},
+            rule_formulas={
+                "a:foo#asset_limit": "if elderly:\n    asset_limit_elderly\nelse: asset_limit_other",
+            },
+            fixture_outputs={},
+            input_meta={},
+            relation_meta={},
+            rule_meta={
+                "a:foo#asset_limit_elderly": {
+                    "name": "asset_limit_elderly",
+                    "kind": "parameter",
+                    "dtype": "money",
+                    "source": "test source",
+                    "formula": "4500",
+                },
+            },
+        )
+
+        children = traces["a:foo#asset_limit"]["children"]
+        by_id = {c["legalId"]: c for c in children}
+        self.assertEqual(by_id["a:foo#asset_limit_elderly"]["value"], 4500)
+        self.assertNotIn("notEvaluated", by_id["a:foo#asset_limit_elderly"])
+
     def test_bare_name_relation_dep_resolves_to_canonical_relation_leaf(self) -> None:
         traces = self._build_short_circuited()
         children = traces["a:foo#outer"]["children"]
