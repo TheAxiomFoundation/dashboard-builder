@@ -387,6 +387,69 @@ class StaticStubFallbackTests(unittest.TestCase):
         self.assertEqual(predicate["evaluationRole"], "relationPredicate")
         self.assertNotIn("notEvaluated", predicate)
 
+    def test_person_dependencies_under_relation_predicate_keep_predicate_role(self) -> None:
+        traces = _build_trace_tree(
+            ["a:foo#outer"],
+            raw_trace={
+                "a:foo#outer": {
+                    "kind": "judgment",
+                    "name": "outer",
+                    "outcome": "holds",
+                    "dependencies": ["a:foo#relation.members"],
+                },
+            },
+            flat_inputs={"a:foo#relation.members": [{}]},
+            user_keys={"a:foo#relation.members"},
+            rule_rule_deps={
+                "a:foo#outer": [
+                    "a:foo#relation.members",
+                    "a:foo#member_eligible",
+                ],
+                "a:foo#member_eligible": ["a:foo#member_has_status"],
+            },
+            rule_input_deps={},
+            rule_formulas={
+                "a:foo#outer": "count_where(members, member_eligible) > 0",
+            },
+            fixture_outputs={},
+            input_meta={},
+            relation_meta={
+                "a:foo#relation.members": {
+                    "legal_id": "a:foo#relation.members",
+                    "name": "members",
+                    "file_legal_id": "a:foo",
+                },
+            },
+            rule_meta={
+                "a:foo#member_eligible": {
+                    "name": "member_eligible",
+                    "kind": "derived",
+                    "entity": "Person",
+                    "dtype": "judgment",
+                    "source": "test source",
+                    "formula": "member_has_status",
+                },
+                "a:foo#member_has_status": {
+                    "name": "member_has_status",
+                    "kind": "derived",
+                    "entity": "Person",
+                    "dtype": "judgment",
+                    "source": "test source",
+                    "formula": "true",
+                },
+            },
+        )
+
+        outer = traces["a:foo#outer"]
+        member_eligible = {
+            c["legalId"]: c for c in outer["children"]
+        }["a:foo#member_eligible"]
+        member_has_status = {
+            c["legalId"]: c for c in member_eligible["children"]
+        }["a:foo#member_has_status"]
+        self.assertEqual(member_has_status["evaluationRole"], "relationPredicate")
+        self.assertNotIn("notEvaluated", member_has_status)
+
     def test_bare_name_relation_dep_resolves_to_canonical_relation_leaf(self) -> None:
         traces = self._build_short_circuited()
         children = traces["a:foo#outer"]["children"]

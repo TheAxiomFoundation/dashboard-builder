@@ -634,6 +634,7 @@ def _build_trace_tree(
         stack: set[str],
         *,
         parent_formula: str | None = None,
+        parent_relation_predicate: bool = False,
     ) -> dict[str, Any] | None:
         if dep_id in nodes:
             return nodes[dep_id]
@@ -653,7 +654,7 @@ def _build_trace_tree(
                 parent_formula,
                 meta.get("name"),
                 meta.get("entity"),
-            )
+            ) or (parent_relation_predicate and meta.get("entity") == "Person")
             stub = _static_rule_stub(
                 dep_id,
                 meta,
@@ -677,8 +678,14 @@ def _build_trace_tree(
     ) -> None:
         seen_child_ids: set[str] = set()
         formula = node.get("formula")
+        relation_predicate_context = node.get("evaluationRole") == "relationPredicate"
         for dep_id in runtime_deps:
-            child = dependency_node(dep_id, stack, parent_formula=formula)
+            child = dependency_node(
+                dep_id,
+                stack,
+                parent_formula=formula,
+                parent_relation_predicate=relation_predicate_context,
+            )
             if child is not None:
                 node["children"].append(child)
                 seen_child_ids.add(dep_id)
@@ -700,7 +707,12 @@ def _build_trace_tree(
         for dep_id in rule_rule_deps.get(legal_id, []):
             if dep_id in seen_child_ids:
                 continue
-            child = dependency_node(dep_id, stack, parent_formula=formula)
+            child = dependency_node(
+                dep_id,
+                stack,
+                parent_formula=formula,
+                parent_relation_predicate=relation_predicate_context,
+            )
             if child is not None:
                 node["children"].append(child)
                 seen_child_ids.add(dep_id)
