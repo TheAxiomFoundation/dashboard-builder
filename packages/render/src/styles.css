@@ -2167,6 +2167,22 @@ body, html, #root {
   stroke: var(--color-accent);
 }
 
+/* Rules referenced by the formula but skipped at runtime (other side
+   of a short-circuited AND/OR, count_where predicate, etc.). Still
+   clickable to drill into the rule's static definition, but visually
+   muted to distinguish from rules whose value is known. */
+.rg-node.rg-rule.rg-not-evaluated .rg-shape {
+  fill: var(--color-paper-elevated);
+  stroke: var(--color-ink-muted);
+  stroke-dasharray: 4 3;
+  opacity: 0.85;
+}
+
+.rg-node.rg-rule.rg-not-evaluated .rg-node-label,
+.rg-node.rg-rule.rg-not-evaluated .rg-node-sub {
+  color: var(--color-ink-muted);
+}
+
 .rg-node.rg-input.rg-user .rg-shape {
   fill: var(--color-success-light);
   stroke: var(--color-success);

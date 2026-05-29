@@ -55,6 +55,14 @@ export interface TraceNode {
   inputSource?: "user" | "default";
   /** For input-leaf nodes only: the file legal ID where the input lives (e.g. `us-co:regulations/10-ccr-2506-1/4.407.31`). */
   homeFile?: string;
+  /**
+   * True for rule nodes the formula references but that the engine did
+   * not evaluate this run (other side of a short-circuited AND/OR, dead
+   * branch of an IF, count_where predicate when the outer rule never
+   * reached it). `value` is null in this case; the renderer should show
+   * the node as muted/not-evaluated rather than as a missing dependency.
+   */
+  notEvaluated?: boolean;
   /** Children = sub-rules / inputs that fed into this one. */
   children?: TraceNode[];
 }

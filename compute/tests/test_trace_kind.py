@@ -174,5 +174,99 @@ class BuildTraceTreeIntegrationTests(unittest.TestCase):
         )
 
 
+class StaticStubFallbackTests(unittest.TestCase):
+    """When the engine short-circuits an AND/OR or skips a branch, the
+    static dep is missing from `raw_trace`. `_build_trace_tree` should
+    still surface it — relations as relation-kind leaves with member
+    counts, rules as `notEvaluated: True` stubs — so the formula tokens
+    in the UI always resolve to something concrete.
+
+    Without these fallbacks, the formula `a and b` would silently lose
+    `b` from the trace whenever `a` was false, leaving the formula's
+    pill for `b` in the graph as a generic "unknown" node.
+    """
+
+    def _build_short_circuited(self):
+        return _build_trace_tree(
+            ["a:foo#outer"],
+            raw_trace={
+                # Only `a` was evaluated; engine short-circuited before `b`
+                # was reached.
+                "a:foo#outer": {
+                    "kind": "judgment",
+                    "name": "outer",
+                    "outcome": "not_holds",
+                    "dependencies": ["a:foo#left"],
+                },
+                "a:foo#left": {
+                    "kind": "judgment",
+                    "name": "left",
+                    "outcome": "not_holds",
+                    "dependencies": [],
+                },
+            },
+            flat_inputs={
+                "a:foo#relation.members": [{}, {}, {}],
+            },
+            user_keys={"a:foo#relation.members"},
+            rule_rule_deps={
+                "a:foo#outer": [
+                    "a:foo#left",
+                    "a:foo#right_unevaluated",  # rule the engine skipped
+                    "a:foo#members",  # bare-name relation reference
+                ],
+            },
+            rule_input_deps={},
+            rule_formulas={},
+            fixture_outputs={},
+            input_meta={},
+            relation_meta={
+                # Indexed by both canonical and bare-name forms (matches
+                # what `_rule_metadata_for` produces).
+                "a:foo#relation.members": {
+                    "legal_id": "a:foo#relation.members",
+                    "name": "members",
+                    "file_legal_id": "a:foo",
+                },
+                "a:foo#members": {
+                    "legal_id": "a:foo#relation.members",
+                    "name": "members",
+                    "file_legal_id": "a:foo",
+                },
+            },
+            rule_meta={
+                "a:foo#right_unevaluated": {
+                    "name": "right_unevaluated",
+                    "dtype": "judgment",
+                    "source": "test source",
+                },
+            },
+        )
+
+    def test_short_circuit_surfaces_unevaluated_rule_as_stub(self) -> None:
+        traces = self._build_short_circuited()
+        children = traces["a:foo#outer"]["children"]
+        by_id = {c["legalId"]: c for c in children}
+        self.assertIn("a:foo#right_unevaluated", by_id)
+        stub = by_id["a:foo#right_unevaluated"]
+        self.assertTrue(stub["notEvaluated"])
+        self.assertIsNone(stub["value"])
+        self.assertEqual(stub["dtype"], "judgment")
+        self.assertEqual(stub["label"], "right_unevaluated")
+
+    def test_bare_name_relation_dep_resolves_to_canonical_relation_leaf(self) -> None:
+        traces = self._build_short_circuited()
+        children = traces["a:foo#outer"]["children"]
+        by_id = {c["legalId"]: c for c in children}
+        # The bare-name dep id `a:foo#members` should resolve to a leaf
+        # using the canonical `a:foo#relation.members` legal id (so the
+        # frontend's tokenIndex strips `relation.` and matches the
+        # formula's `members` token correctly).
+        self.assertIn("a:foo#relation.members", by_id)
+        rel = by_id["a:foo#relation.members"]
+        self.assertEqual(rel["kind"], "relation")
+        self.assertEqual(rel["memberCount"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

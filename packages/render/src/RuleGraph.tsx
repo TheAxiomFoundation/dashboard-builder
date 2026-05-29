@@ -402,12 +402,23 @@ function layoutAst(
           });
           return my;
         }
-        // Sub-rule reference — clickable terminal.
-        const verdictCls = showValues ? verdictClassOfTrace(t) : "rg-neutral";
+        // Sub-rule reference — clickable terminal. When the engine
+        // didn't actually evaluate this rule (other side of a
+        // short-circuited AND/OR, count_where predicate that the
+        // outer rule never reached, etc.) it carries `notEvaluated:
+        // true` — render distinctly so the user can tell "this would
+        // be checked, but wasn't this time" from "this was evaluated
+        // and undetermined".
+        const notEvaluated = !!t.notEvaluated;
+        const verdictCls = notEvaluated
+          ? "rg-not-evaluated"
+          : showValues
+            ? verdictClassOfTrace(t)
+            : "rg-neutral";
         const full = t.label || node.name;
         const { width: w, height: h, display } = leafDimensions(full, {
           hasSubLabel: true,
-          hasValue: showValues,
+          hasValue: showValues && !notEvaluated,
         });
         g.setNode(my, { width: w, height: h });
         nodes.push({
@@ -418,8 +429,12 @@ function layoutAst(
           height: h,
           label: display,
           fullLabel: full,
-          subLabel: "open ›",
-          valueDisplay: showValues ? formatValue(t.value) : "",
+          subLabel: notEvaluated ? "not evaluated · open ›" : "open ›",
+          valueDisplay: notEvaluated
+            ? ""
+            : showValues
+              ? formatValue(t.value)
+              : "",
           cls: `rg-rule ${verdictCls}`,
           shape: "rounded-tab",
           clickable: true,
