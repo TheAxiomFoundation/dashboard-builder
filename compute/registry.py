@@ -36,6 +36,9 @@ DEFAULT_REPOS = [
     "rules-ca",
 ]
 
+_COMPOSED_ARTIFACT_ROOT = Path(__file__).resolve().parent / "artifacts" / "composed"
+_COMPOSED_KIND = "programs"
+
 
 @dataclass
 class RegistryConfig:
@@ -155,12 +158,190 @@ def list_programs(config: RegistryConfig, repo: str) -> list[dict]:
                 "name": yaml_path.stem,
                 "summary": _read_summary(yaml_path),
             })
+    programs.extend(_list_composed_programs(config, repo))
     return programs
 
 
 def resolve_program(config: RegistryConfig, repo: str, path: str) -> Path:
+    if path.startswith(f"{_COMPOSED_KIND}/"):
+        composed = _resolve_composed_program(config, repo, path)
+        if composed is not None:
+            return composed
     repo_dir = ensure_repo(config, repo)
     full = repo_dir / path
     if not full.exists():
         raise FileNotFoundError(f"program not found: {repo}/{path}")
     return full
+
+
+def _repo_jurisdiction(repo: str) -> str | None:
+    if repo.startswith("rulespec-"):
+        return repo[len("rulespec-"):]
+    if repo.startswith("rules-"):
+        return repo[len("rules-"):]
+    return None
+
+
+def _jurisdiction_label(jurisdiction: str) -> str:
+    return {
+        "us-ca": "California",
+        "us-co": "Colorado",
+        "us-ny": "New York",
+    }.get(jurisdiction, jurisdiction)
+
+
+def _programs_repo(config: RegistryConfig) -> Path:
+    env_root = os.environ.get("AXIOM_PROGRAMS_ROOT")
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    return config.root / "axiom-programs"
+
+
+def _compose_repo(config: RegistryConfig) -> Path:
+    env_root = os.environ.get("AXIOM_COMPOSE_ROOT")
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    return config.root / "axiom-compose"
+
+
+def _composed_source_for(config: RegistryConfig, repo: str, path: str) -> Path | None:
+    jurisdiction = _repo_jurisdiction(repo)
+    if not jurisdiction or not path.startswith(f"{_COMPOSED_KIND}/"):
+        return None
+    rel = Path(path).relative_to(_COMPOSED_KIND)
+    source = _programs_repo(config) / jurisdiction / rel
+    return source if source.exists() else None
+
+
+def _composed_artifact_path(repo: str, path: str) -> Path:
+    return _COMPOSED_ARTIFACT_ROOT / repo / path
+
+
+def _list_composed_programs(config: RegistryConfig, repo: str) -> list[dict]:
+    jurisdiction = _repo_jurisdiction(repo)
+    if not jurisdiction:
+        return []
+    root = _programs_repo(config) / jurisdiction
+    if not root.exists():
+        return []
+
+    programs: list[dict] = []
+    for yaml_path in sorted(root.rglob("*.yaml")):
+        if yaml_path.name.endswith(".test.yaml"):
+            continue
+        rel = yaml_path.relative_to(root)
+        path = f"{_COMPOSED_KIND}/{rel.as_posix()}"
+        summary = _read_composed_summary(yaml_path, jurisdiction)
+        programs.append({
+            "repo": repo,
+            "path": path,
+            "kind": _COMPOSED_KIND,
+            "name": yaml_path.stem,
+            "summary": summary,
+        })
+    return programs
+
+
+def _read_composed_summary(yaml_path: Path, jurisdiction: str) -> str:
+    try:
+        parsed = yaml.safe_load(yaml_path.read_text())
+    except Exception:
+        parsed = None
+    if not isinstance(parsed, dict):
+        return ""
+    program = str(parsed.get("program") or "")
+    period = str(parsed.get("period") or "").strip()
+    if program.endswith("/snap"):
+        label = f"{_jurisdiction_label(jurisdiction)} SNAP"
+    else:
+        label = program.replace("/", " ").strip() or yaml_path.stem
+    if period:
+        return f"{label} program composition for {period}."
+    return f"{label} program composition."
+
+
+def _resolve_composed_program(
+    config: RegistryConfig,
+    repo: str,
+    path: str,
+) -> Path | None:
+    source = _composed_source_for(config, repo, path)
+    if source is None:
+        return None
+
+    artifact = _composed_artifact_path(repo, path)
+    source_mtime = source.stat().st_mtime
+    if artifact.exists() and artifact.stat().st_mtime >= source_mtime:
+        _sanitize_composed_artifact(artifact)
+        return artifact
+
+    compose_root = _compose_repo(config)
+    cli_src = compose_root / "src"
+    if not cli_src.exists():
+        raise FileNotFoundError(
+            f"axiom-compose source not found; set AXIOM_COMPOSE_ROOT or clone it at {compose_root}"
+        )
+
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    jurisdiction = _repo_jurisdiction(repo)
+    rulespec_roots = [config.root / "rulespec-us"]
+    if jurisdiction:
+        rulespec_roots.append(config.root / f"rulespec-{jurisdiction}")
+    existing_roots = [root for root in rulespec_roots if root.exists()]
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = (
+        str(cli_src)
+        if not env.get("PYTHONPATH")
+        else f"{cli_src}{os.pathsep}{env['PYTHONPATH']}"
+    )
+    cmd = [
+        "python",
+        "-m",
+        "axiom_compose.cli",
+        str(source),
+        "-o",
+        str(artifact),
+    ]
+    for root in existing_roots:
+        cmd.extend(["--rulespec-root", str(root)])
+    proc = subprocess.run(
+        cmd,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"axiom-compose failed for {source}: {proc.stderr.strip()}")
+    _sanitize_composed_artifact(artifact)
+    return artifact
+
+
+def _sanitize_composed_artifact(artifact: Path) -> None:
+    """Remove composed rule kinds the current runtime cannot compile.
+
+    axiom-compose can emit ``derived_relation`` helper rules such as
+    ``snap_unit``. The current axiom-rules-engine rejects that rule kind at
+    compile time, and the CA/NY SNAP eligibility wrappers query the source
+    ``member_of_household`` relation directly, so those helper rules are not
+    needed for dashboard execution.
+    """
+    try:
+        parsed = yaml.safe_load(artifact.read_text())
+    except Exception:
+        return
+    if not isinstance(parsed, dict):
+        return
+    rules = parsed.get("rules")
+    if not isinstance(rules, list):
+        return
+    filtered = [
+        rule
+        for rule in rules
+        if not (isinstance(rule, dict) and rule.get("kind") == "derived_relation")
+    ]
+    if len(filtered) == len(rules):
+        return
+    parsed["rules"] = filtered
+    artifact.write_text(yaml.safe_dump(parsed, sort_keys=False))

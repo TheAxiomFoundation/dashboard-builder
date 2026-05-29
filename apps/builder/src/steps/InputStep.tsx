@@ -143,7 +143,7 @@ function QuestionDepthStep({
           label: curatedById.get(input.legalId)?.label,
           default: curatedById.get(input.legalId)?.default,
         })),
-        curated?.recommendedMemberCount ?? 3,
+        curated?.recommendedMemberCount ?? 1,
       ),
     );
   }
@@ -1500,7 +1500,7 @@ function addRecommendedQuestions(draft: Draft, legalIds: string[]): Draft {
     draft,
     draft.graph,
     recommended,
-    curated?.recommendedMemberCount ?? 3,
+    curated?.recommendedMemberCount ?? 1,
   );
 }
 
@@ -1684,6 +1684,7 @@ function categorizeInput(
 }
 
 function inferDtype(node: InputGraphNode): string {
+  if (node.dtype) return node.dtype;
   const sample = node.sample;
   if (typeof sample === "boolean") return "boolean";
   if (typeof sample === "number") return Number.isInteger(sample) ? "integer" : "decimal";

@@ -74,7 +74,7 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
     path: "policies/cdhs/snap/fy-2026-benefit-calculation.yaml",
     label: "Colorado SNAP",
     labelPrefix: "snap",
-    recommendedMemberCount: 3,
+    recommendedMemberCount: 1,
     recommendedInputs: [
       // Capped starter set: enough to move eligibility and amount, without
       // flooding the form with every reachable rule-pack input.
@@ -82,7 +82,7 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
         legalId:
           "us-co:regulations/10-ccr-2506-1/4.207.3#input.household_size",
         label: "Household size",
-        default: 3,
+        default: 1,
       },
       {
         legalId:
@@ -229,6 +229,212 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
           "us-co:regulations/10-ccr-2506-1/4.207.2#snap_allotment",
         label: "Benefit amount",
         blurb: "How much the household receives each month if eligible.",
+      },
+    ],
+  },
+  {
+    repo: "rulespec-us-ca",
+    path: "programs/snap/fy-2026.yaml",
+    label: "California SNAP (CalFresh)",
+    labelPrefix: "snap",
+    recommendedMemberCount: 1,
+    recommendedInputs: [
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_lives_in_application_state",
+        label: "Lives in California",
+        default: true,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_in_project_area_solely_for_vacation",
+        label: "In California only for vacation",
+        default: false,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area",
+        label: "Household member already participates elsewhere",
+        default: false,
+      },
+      {
+        legalId: "us:regulations/7-cfr/273/4#input.member_is_us_citizen",
+        label: "U.S. citizen",
+        default: true,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/6#input.member_refused_or_failed_to_provide_or_apply_for_ssn",
+        label: "Refused or failed to provide/apply for SSN",
+        default: false,
+      },
+    ],
+    inputDefaults: [
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_lives_in_application_state",
+        label: "Lives in California",
+        default: true,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_in_project_area_solely_for_vacation",
+        label: "In California only for vacation",
+        default: false,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area",
+        label: "Household member already participates elsewhere",
+        default: false,
+      },
+      {
+        legalId: "us:regulations/7-cfr/273/4#input.member_is_us_citizen",
+        label: "U.S. citizen",
+        default: true,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/6#input.member_refused_or_failed_to_provide_or_apply_for_ssn",
+        label: "Refused or failed to provide/apply for SSN",
+        default: false,
+      },
+    ],
+    mainOutputs: [
+      {
+        legalId: "us-ca:programs/snap/fy-2026#snap_eligible",
+        label: "Eligibility",
+        blurb: "Whether the household appears eligible for CalFresh.",
+      },
+    ],
+  },
+  {
+    repo: "rulespec-us-ny",
+    path: "policies/otda/snap/fy-2026-benefit-calculation.yaml",
+    label: "New York SNAP",
+    labelPrefix: "snap",
+    recommendedMemberCount: 1,
+    recommendedInputs: [
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_lives_in_application_state",
+        label: "Lives in New York",
+        default: true,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_in_project_area_solely_for_vacation",
+        label: "In New York only for vacation",
+        default: false,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area",
+        label: "Household member already participates elsewhere",
+        default: false,
+      },
+      {
+        legalId: "us:regulations/7-cfr/273/4#input.member_is_us_citizen",
+        label: "U.S. citizen",
+        default: true,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/6#input.member_refused_or_failed_to_provide_or_apply_for_ssn",
+        label: "Refused or failed to provide/apply for SSN",
+        default: false,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/10#input.snap_countable_earned_income",
+        label: "Monthly earned income",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income",
+        label: "Monthly unearned income",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/8#input.snap_countable_financial_resources",
+        label: "Countable financial resources",
+        default: 0,
+      },
+      {
+        legalId:
+          "us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred",
+        label: "Monthly rent or mortgage",
+        default: 0,
+      },
+    ],
+    inputDefaults: [
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_lives_in_application_state",
+        label: "Lives in New York",
+        default: true,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_in_project_area_solely_for_vacation",
+        label: "In New York only for vacation",
+        default: false,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area",
+        label: "Household member already participates elsewhere",
+        default: false,
+      },
+      {
+        legalId: "us:regulations/7-cfr/273/4#input.member_is_us_citizen",
+        label: "U.S. citizen",
+        default: true,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/6#input.member_refused_or_failed_to_provide_or_apply_for_ssn",
+        label: "Refused or failed to provide/apply for SSN",
+        default: false,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/10#input.snap_countable_earned_income",
+        label: "Monthly earned income",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income",
+        label: "Monthly unearned income",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/8#input.snap_countable_financial_resources",
+        label: "Countable financial resources",
+        default: 0,
+      },
+      {
+        legalId:
+          "us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred",
+        label: "Monthly rent or mortgage",
+        default: 0,
+      },
+    ],
+    mainOutputs: [
+      {
+        legalId:
+          "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_eligible",
+        label: "Eligibility",
+        blurb: "Whether the household appears eligible for SNAP in New York.",
+      },
+      {
+        legalId: "us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment",
+        label: "Benefit amount",
+        blurb: "Estimated monthly SNAP amount for the household.",
       },
     ],
   },
@@ -410,7 +616,7 @@ export function ProgramStep({ draft, setDraft }: Props) {
       </div>
 
       <p className="program-pilot-note">
-        We're piloting the builder against one program at a time. More on the way.
+        We're piloting the builder with Colorado, California, and New York SNAP.
       </p>
 
       {draft.program && (

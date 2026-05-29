@@ -192,6 +192,7 @@ export function presentationFor(rule: RuleNode): OutputPresentation {
 }
 
 export function dtypeFor(input: InputGraphNode): InputDtype {
+  if (input.dtype) return input.dtype;
   const sample = input.sample;
   if (typeof sample === "boolean") return "boolean";
   if (typeof sample === "number") return Number.isInteger(sample) ? "integer" : "decimal";
@@ -280,7 +281,7 @@ export function applyRecommendedSetup(
     label?: string;
     default?: string | number | boolean;
   }>,
-  memberCount = 3,
+  memberCount = 1,
 ): Draft {
   let nextInputs: InputExposure[] = [...draft.inputs];
   let nextRelations: RelationExposure[] = [...draft.relations];

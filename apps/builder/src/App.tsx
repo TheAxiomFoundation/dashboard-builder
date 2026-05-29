@@ -452,7 +452,7 @@ export function App() {
         draft,
         draft.graph,
         curated.recommendedInputs,
-        curated.recommendedMemberCount ?? 3,
+        curated.recommendedMemberCount ?? 1,
       ),
     );
   }, [stepId, draft]);

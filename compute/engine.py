@@ -421,6 +421,19 @@ def _filter_user_supplied_values(
 _CO_SNAP_PROGRAM_SUFFIX = "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
 
 
+def _relation_size_defaults(flat: dict[str, Any]) -> dict[str, Any]:
+    for legal_id, value in flat.items():
+        if is_relation_id(legal_id) and isinstance(value, list):
+            count = max(1, len(value))
+            return {
+                "household_size": count,
+                "us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size": count,
+                "us:policies/usda/snap/fy-2026-cola/deductions#input.household_size": count,
+                "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size": count,
+            }
+    return {}
+
+
 def _dynamic_input_defaults(program_yaml: Path, flat: dict[str, Any]) -> dict[str, Any]:
     """Computed bridge defaults for imported rules that still ask for generic inputs.
 
@@ -829,7 +842,10 @@ def _execute_real_batch(
     template = first_test_case(test) if (test := find_test_template(program_yaml)) else None
 
     flat = merge_with_template(template, user_inputs, relations)
-    dynamic_defaults = _dynamic_input_defaults(program_yaml, flat)
+    dynamic_defaults = {
+        **_relation_size_defaults(flat),
+        **_dynamic_input_defaults(program_yaml, flat),
+    }
     interval_start, interval_end = _month_bounds(period)
     inputs, relation_records = _flat_inputs_to_records(
         flat,
@@ -1171,7 +1187,12 @@ def _unique_candidates(candidates: list[str], exclude: set[str] | None = None) -
 def _rules_workspace_root(program_yaml: Path) -> Path:
     for parent in program_yaml.resolve().parents:
         if parent.name.startswith(("rules-", "rulespec-")):
+            if "artifacts" in parent.parts and "composed" in parent.parts:
+                continue
             return parent.parent
+    sibling_root = Path(__file__).resolve().parents[2]
+    if any(sibling_root.glob("rulespec-*")) or any(sibling_root.glob("rules-*")):
+        return sibling_root
     return program_yaml.resolve().parent
 
 
@@ -1302,6 +1323,7 @@ def _neutral_default_for_fixture_input(legal_id: str, raw: Any) -> dict[str, Any
     if fragment in {"member_is_us_citizen"}:
         return {"kind": "bool", "value": True}
     if fragment in {
+        "household_size",
         "self_employment_income_period_months",
         "real_property_assessment_percentage_rate",
     }:

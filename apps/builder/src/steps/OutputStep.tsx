@@ -290,7 +290,7 @@ export function OutputStep({
         next,
         graph,
         curated.recommendedInputs,
-        curated.recommendedMemberCount ?? 3,
+        curated.recommendedMemberCount ?? 1,
       );
     }
     setDraft(next);
@@ -341,7 +341,7 @@ export function OutputStep({
         next,
         graph,
         curated.recommendedInputs,
-        curated.recommendedMemberCount ?? 3,
+        curated.recommendedMemberCount ?? 1,
       );
     }
     setDraft(next);

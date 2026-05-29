@@ -38,6 +38,7 @@ export interface InputGraphNode {
   legalId: string;
   name: string;
   fileLegalId: string;
+  dtype?: "money" | "decimal" | "integer" | "boolean" | "date" | "string" | null;
   sample: string | number | boolean | null;
   /** "Person" if the input is per-member of a relation; "Household" otherwise. */
   entity?: "Person" | "Household";
