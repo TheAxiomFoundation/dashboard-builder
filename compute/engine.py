@@ -700,6 +700,7 @@ def _static_rule_stub(legal_id: str, meta: dict[str, Any]) -> dict[str, Any]:
         "value": None,
         "dtype": meta.get("dtype") or "judgment",
         "source": meta.get("source"),
+        "formula": meta.get("formula"),
         "notEvaluated": True,
         "children": [],
     }
@@ -1104,6 +1105,7 @@ def _rule_metadata_for(
             "name": rule.name,
             "dtype": (rule.dtype or "").lower() or "decimal",
             "source": rule.source,
+            "formula": rule.formula,
         }
     for inp in graph.inputs.values():
         input_meta[inp.legal_id] = {
