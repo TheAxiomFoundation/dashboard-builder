@@ -33,6 +33,20 @@ export interface TraceNode {
   label?: string;
   value: number | string | boolean | null;
   dtype: OutputValue["dtype"] | "input";
+  /**
+   * Distinguishes scalar inputs from relations (lists of members) and
+   * per-member inputs (Person-scope inputs read once per relation member).
+   * Defaults to "scalar" when omitted for backward compatibility with old
+   * traces. The renderer uses this to avoid showing relations as
+   * default-grey when the caller actually populated members, and to label
+   * per-member inputs with "per member" instead of treating them as a
+   * top-level scalar form field.
+   */
+  kind?: "scalar" | "relation" | "member";
+  /** For `kind: "relation"` only — how many members the caller supplied. */
+  memberCount?: number;
+  /** For `kind: "member"` only — the relation legal id this input belongs to. */
+  relationLegalId?: LegalId;
   /** Source citation (statute / regulation reference). For inputs, this is a humanized form of the home-file legal ID. */
   source?: string;
   /** For rule nodes: the latest-version formula text from the YAML — the actual condition that produced this value. */

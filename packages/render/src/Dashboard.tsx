@@ -321,20 +321,27 @@ export function Dashboard({
           )}
         </div>
 
-        {computeBusy && <ComputeStatus />}
-        <Results
-          spec={spec}
-          outputs={outputs}
-          traces={traces}
-          coverage={coverage}
-          warnings={warnings}
-          mode={mode}
-          showCoverage={variant === "embedded"}
-          onExposeInput={onExposeInput}
-          exposedInputIds={exposedInputIds}
-          onAddOutput={onAddOutput}
-          selectedOutputIds={selectedOutputIds}
-        />
+        {/* Wrapper keeps ComputeStatus + Results in a single grid cell.
+            Without it, ComputeStatus would claim its own grid column
+            during compute, pushing Results to a new row below the form
+            — visible as a "right side drops below the form" flicker on
+            every Calculate. */}
+        <div className="dashboard-results-col">
+          {computeBusy && <ComputeStatus />}
+          <Results
+            spec={spec}
+            outputs={outputs}
+            traces={traces}
+            coverage={coverage}
+            warnings={warnings}
+            mode={mode}
+            showCoverage={variant === "embedded"}
+            onExposeInput={onExposeInput}
+            exposedInputIds={exposedInputIds}
+            onAddOutput={onAddOutput}
+            selectedOutputIds={selectedOutputIds}
+          />
+        </div>
       </div>
     </div>
   );

@@ -185,27 +185,72 @@ def _input_leaf(
     legal_id: str,
     flat_inputs: dict[str, Any],
     user_keys: set[str],
+    input_meta: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a leaf trace node for an input dependency.
 
-    The leaf reports the value the engine actually used and flags whether it
-    came from the user (the renderer supplied it) or from the program's
-    test-fixture default. `source` is a humanized citation (e.g. "10 CCR
-    2506-1 § 4.407.31") derived from the input's file legal ID — that's the
-    answer to "where is this input declared?".
+    Distinguishes three `kind`s so the renderer can tell them apart:
+      • "relation" — a `#relation.<name>` reference whose value is a list of
+         member dicts (e.g. household members). `memberCount` reports how
+         many members were supplied so the UI can show "Members ×3" instead
+         of treating it as a scalar default.
+      • "member" — an `#input.<name>` whose graph metadata marks it as
+         `entity: Person`. The engine reads its value once per relation
+         member, not once globally. The renderer should label these as
+         "per member" and source them from the relation, not from a
+         top-level form field.
+      • "scalar" — everything else (the previous default behavior).
+
+    `inputSource` stays meaningful for scalars; for relations and member
+    inputs the source distinction is whether the relation was supplied
+    (members provided) vs left to the fixture default.
     """
+    file_part, _, tail = legal_id.partition("#")
+    is_relation = tail.startswith("relation.")
+    meta = (input_meta or {}).get(legal_id) or {}
+    is_member_input = (
+        not is_relation
+        and tail.startswith("input.")
+        and meta.get("entity") == "Person"
+    )
+
     raw_value = flat_inputs.get(legal_id)
-    file_part, _, _ = legal_id.partition("#")
-    return {
+    member_count: int | None = None
+    if is_relation:
+        members = raw_value if isinstance(raw_value, list) else []
+        member_count = len(members)
+        # A relation's "value" is its member count for display purposes —
+        # `_normalize_input_value` would otherwise stringify a list.
+        normalized_value: Any = member_count
+    else:
+        normalized_value = _normalize_input_value(raw_value)
+
+    kind = "relation" if is_relation else ("member" if is_member_input else "scalar")
+
+    # For relations: "user" if the caller provided members; the user-keys
+    # set already tracks both scalar input ids and relation ids.
+    # For per-member inputs: "user" if the renderer plumbed a value into
+    # at least one relation member dict (user_keys collects member dict keys
+    # as part of _collect_user_keys).
+    source_state = "user" if legal_id in user_keys else "default"
+
+    label = tail.removeprefix("input.").removeprefix("relation.")
+    leaf: dict[str, Any] = {
         "legalId": legal_id,
-        "label": legal_id.split("#")[-1].removeprefix("input."),
-        "value": _normalize_input_value(raw_value),
+        "label": label,
+        "value": normalized_value,
         "dtype": "input",
-        "inputSource": "user" if legal_id in user_keys else "default",
+        "kind": kind,
+        "inputSource": source_state,
         "source": _humanize_citation(file_part),
         "homeFile": file_part,
         "children": [],
     }
+    if kind == "relation" and member_count is not None:
+        leaf["memberCount"] = member_count
+    if kind == "member" and meta.get("relation_legal_id"):
+        leaf["relationLegalId"] = meta["relation_legal_id"]
+    return leaf
 
 
 def _fixture_output_node(legal_id: str, raw_value: Any) -> dict[str, Any]:
@@ -547,6 +592,7 @@ def _build_trace_tree(
     rule_input_deps: dict[str, list[str]] | None = None,
     rule_formulas: dict[str, str] | None = None,
     fixture_outputs: dict[str, Any] | None = None,
+    input_meta: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Convert flat trace dict into a per-output tree.
 
@@ -591,7 +637,9 @@ def _build_trace_tree(
         # Append input deps last so they sit at the bottom of the rule's
         # children list (rules first, then their leaf inputs).
         for input_id in rule_input_deps.get(legal_id, []):
-            node["children"].append(_input_leaf(input_id, flat_inputs, user_keys))
+            node["children"].append(
+                _input_leaf(input_id, flat_inputs, user_keys, input_meta),
+            )
 
     return {q: nodes[q] for q in queried if q in nodes}
 
@@ -817,7 +865,13 @@ def _execute_real_batch(
         for o in result.get("outputs", {}).values()
     ]
     user_keys = _collect_user_keys(user_inputs, relations)
-    rule_rule_deps, rule_input_deps, rule_formulas, rule_id_by_name = _rule_metadata_for(program_yaml)
+    (
+        rule_rule_deps,
+        rule_input_deps,
+        rule_formulas,
+        rule_id_by_name,
+        input_meta,
+    ) = _rule_metadata_for(program_yaml)
     raw_trace = _normalize_trace_keys(
         result.get("trace", {}),
         rule_id_by_name | queried_by_name,
@@ -831,6 +885,7 @@ def _execute_real_batch(
         rule_input_deps,
         rule_formulas,
         _fixture_outputs_for_trace(program_yaml, dynamic_defaults),
+        input_meta,
     )
     coverage = _coverage(flat, user_keys)
     return {"outputs": outputs, "traces": traces, "coverage": coverage}
@@ -913,32 +968,49 @@ _graph_cache: dict[
 
 def _rule_metadata_for(
     program_yaml: Path,
-) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, str], dict[str, str]]:
+) -> tuple[
+    dict[str, list[str]],
+    dict[str, list[str]],
+    dict[str, str],
+    dict[str, str],
+    dict[str, dict[str, Any]],
+]:
     """Cached rule dependency and formula maps for a program.
 
     Maps key off rule legal ID. `formula` is the latest version's raw
     condition text from the YAML, used by the UI to explain why a rule holds
-    or fails. Empty maps on graph-build failure.
+    or fails. `input_meta` carries each input's entity scope ("Household" or
+    "Person") and, for Person-scope inputs, the relation they belong to —
+    used by the trace builder to tag per-member inputs distinctly from
+    scalar Household inputs. Empty maps on graph-build failure.
     """
     if program_yaml in _graph_cache:
         return _graph_cache[program_yaml]
     try:
         graph = build_graph(program_yaml, _infer_repo(program_yaml))
     except Exception:
-        _graph_cache[program_yaml] = ({}, {}, {}, {})
-        return ({}, {}, {}, {})
+        _graph_cache[program_yaml] = ({}, {}, {}, {}, {})
+        return ({}, {}, {}, {}, {})
     rule_deps: dict[str, list[str]] = {}
     input_deps: dict[str, list[str]] = {}
     formulas: dict[str, str] = {}
     rule_id_by_name: dict[str, str] = {}
+    input_meta: dict[str, dict[str, Any]] = {}
     for rule in graph.rules.values():
         rule_deps[rule.legal_id] = list(rule.rule_deps)
         input_deps[rule.legal_id] = list(rule.input_deps) + list(rule.relation_deps)
         rule_id_by_name.setdefault(rule.name, rule.legal_id)
         if rule.formula:
             formulas[rule.legal_id] = rule.formula
-    _graph_cache[program_yaml] = (rule_deps, input_deps, formulas, rule_id_by_name)
-    return (rule_deps, input_deps, formulas, rule_id_by_name)
+    for inp in graph.inputs.values():
+        input_meta[inp.legal_id] = {
+            "entity": inp.entity,
+            "relation_legal_id": inp.relation_legal_id,
+        }
+    _graph_cache[program_yaml] = (
+        rule_deps, input_deps, formulas, rule_id_by_name, input_meta,
+    )
+    return (rule_deps, input_deps, formulas, rule_id_by_name, input_meta)
 
 
 def _infer_repo(program_yaml: Path) -> str:

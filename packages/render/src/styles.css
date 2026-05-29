@@ -71,6 +71,17 @@ body, html, #root {
   min-width: 0;
 }
 
+/* Right column wraps the compute status + results so they always
+   share a single grid cell. Without this, ComputeStatus would claim
+   its own grid track during a Calculate and Results would briefly
+   drop to the next row. */
+.dashboard-results-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
 .explanation-block {
   min-width: 0;
 }
@@ -606,6 +617,8 @@ body, html, #root {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 24px;
   padding: 14px 0;
   border-bottom: 1px solid var(--color-rule);
 }
@@ -615,6 +628,9 @@ body, html, #root {
 .ledger-row .ledger-label {
   font-size: 14px;
   color: var(--color-ink-secondary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .ledger-row .ledger-value {
@@ -951,12 +967,16 @@ body, html, #root {
 }
 
 .trace-name {
+  /* Was nowrap + ellipsis — long input/rule names got cut off. Now
+     wraps onto a second line so the full name is always readable.
+     `overflow-wrap: anywhere` lets snake_case identifiers break at any
+     character if they don't fit on one line (`break-word` won't break
+     unbroken tokens, which most snake_case names are). */
   flex: 1 1 auto;
   min-width: 0;
   color: var(--color-ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .trace-equals {
@@ -968,12 +988,10 @@ body, html, #root {
   font-weight: 500;
   color: var(--color-ink);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
   flex-shrink: 1;
   min-width: 0;
-  max-width: 60%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .trace-source {
@@ -1168,8 +1186,15 @@ body, html, #root {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 80px 24px 32px;
-  z-index: 100;
+  /* Top padding clears the sticky app header (≈64px tall) so the
+     modal's own header (close + crumbs + title) stays visible even
+     when an ancestor stacking context wins over our z-index. */
+  padding: 76px 24px 32px;
+  /* Way above any other layer — the app header sits at z-index 10
+     within `.app`'s stacking context, and we sometimes lose to it
+     when our parent chain creates its own stacking context. Belt and
+     suspenders: high z-index + comfortable top padding. */
+  z-index: 1000;
   animation: modal-fade 220ms var(--ease-out);
 }
 
@@ -1184,8 +1209,8 @@ body, html, #root {
 }
 
 .rule-modal {
-  width: min(820px, 92vw);
-  max-height: calc(100vh - 110px);
+  width: min(1180px, 94vw);
+  max-height: calc(100vh - 108px);
   background: var(--color-paper-elevated);
   border: 1px solid var(--color-rule);
   border-radius: 6px;
@@ -1684,9 +1709,8 @@ body, html, #root {
   font-weight: 500;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .ftree-leaf-value {
@@ -1903,6 +1927,63 @@ body, html, #root {
   padding: 12px;
 }
 
+.rg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 4px 4px 10px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+  border-bottom: 1px solid var(--color-rule-subtle);
+  margin-bottom: 8px;
+}
+
+.rg-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rg-legend-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1.5px solid var(--color-ink-muted);
+  background: var(--color-paper);
+}
+
+.rg-legend-swatch-user {
+  border-color: var(--color-success);
+  background: var(--color-success-light);
+}
+
+.rg-legend-swatch-default {
+  border-color: var(--color-warning);
+  background: rgba(180, 83, 9, 0.04);
+  border-style: dashed;
+}
+
+.rg-legend-swatch-rule {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+.rg-legend-swatch-relation {
+  border-color: var(--color-success);
+  background: rgba(22, 101, 52, 0.12);
+  border-width: 2px;
+}
+
+.rg-legend-swatch-member {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
 .rg-svg {
   display: block;
 }
@@ -2097,6 +2178,33 @@ body, html, #root {
   stroke-dasharray: 4 3;
 }
 
+/* Relation nodes — render with a stronger fill so the "× N members"
+   reads as an aggregate container, not a scalar default. */
+.rg-node.rg-input.rg-relation.rg-user .rg-shape {
+  fill: rgba(22, 101, 52, 0.12);
+  stroke: var(--color-success);
+  stroke-width: 2;
+}
+
+.rg-node.rg-input.rg-relation.rg-default .rg-shape {
+  fill: var(--color-rule-subtle);
+  stroke: var(--color-ink-muted);
+  stroke-dasharray: 4 3;
+}
+
+/* Per-member inputs — distinct accent tint so users can immediately
+   tell "this is evaluated per household member" from a one-shot scalar. */
+.rg-node.rg-input.rg-member.rg-user .rg-shape {
+  fill: var(--color-accent-light);
+  stroke: var(--color-accent);
+}
+
+.rg-node.rg-input.rg-member.rg-default .rg-shape {
+  fill: rgba(146, 64, 14, 0.04);
+  stroke: var(--color-accent);
+  stroke-dasharray: 4 3;
+}
+
 .rg-node.rg-literal .rg-shape {
   fill: var(--color-rule-subtle);
   stroke: var(--color-rule);
@@ -2134,9 +2242,13 @@ body, html, #root {
   letter-spacing: 0.04em;
   color: var(--color-ink);
   line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Long snake_case identifiers wrap onto multiple lines instead of
+     truncating with an ellipsis. `overflow-wrap: anywhere` lets the
+     line break at any character (not just at word boundaries that
+     don't exist in snake_case). `leafDimensions` in RuleGraph.tsx
+     sizes the node tall enough for the wrapped text. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
   max-width: 100%;
 }
 
@@ -2280,7 +2392,10 @@ body, html, #root {
   line-height: 1.6;
   vertical-align: baseline;
   border: 1px solid currentColor;
-  white-space: nowrap;
+  /* Allow the pill to wrap its inner contents instead of forcing
+     `nowrap` (which clipped long input names). The pill itself stays
+     a single inline-flex element, but the name and value inside can
+     wrap onto multiple lines. */
   margin: 0 1px;
   max-width: 100%;
   min-width: 0;
@@ -2302,8 +2417,8 @@ body, html, #root {
 .pill-name {
   font-weight: 500;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .pill-value {
