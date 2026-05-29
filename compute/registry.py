@@ -290,6 +290,10 @@ def _resolve_composed_program(
     existing_roots = [root for root in rulespec_roots if root.exists()]
 
     env = os.environ.copy()
+    # axiom-compose accepts --rulespec-root explicitly below. Inherited
+    # workspace-discovery env vars may point at parent search paths, which
+    # compose rejects because it expects concrete rulespec-* repo roots.
+    env.pop("AXIOM_RULESPEC_REPO_ROOTS", None)
     env["PYTHONPATH"] = (
         str(cli_src)
         if not env.get("PYTHONPATH")

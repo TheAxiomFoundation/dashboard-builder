@@ -268,6 +268,30 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
         label: "Refused or failed to provide/apply for SSN",
         default: false,
       },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income",
+        label: "Monthly earned income",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income",
+        label: "Monthly unearned income",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/8#input.snap_countable_financial_resources",
+        label: "Countable financial resources",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses",
+        label: "Monthly shelter costs",
+        default: 0,
+      },
     ],
     inputDefaults: [
       {
@@ -299,12 +323,41 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
         label: "Refused or failed to provide/apply for SSN",
         default: false,
       },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income",
+        label: "Monthly earned income",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income",
+        label: "Monthly unearned income",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/8#input.snap_countable_financial_resources",
+        label: "Countable financial resources",
+        default: 0,
+      },
+      {
+        legalId:
+          "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses",
+        label: "Monthly shelter costs",
+        default: 0,
+      },
     ],
     mainOutputs: [
       {
         legalId: "us-ca:programs/snap/fy-2026#snap_eligible",
         label: "Eligibility",
         blurb: "Whether the household appears eligible for CalFresh.",
+      },
+      {
+        legalId: "us:regulations/7-cfr/273/10#snap_monthly_allotment",
+        label: "Benefit amount",
+        blurb: "Estimated normal monthly CalFresh amount for the household.",
       },
     ],
   },
