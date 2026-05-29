@@ -249,7 +249,21 @@ def _input_leaf(
     if kind == "relation" and member_count is not None:
         leaf["memberCount"] = member_count
     if kind == "member" and meta.get("relation_legal_id"):
-        leaf["relationLegalId"] = meta["relation_legal_id"]
+        relation_id = meta["relation_legal_id"]
+        leaf["relationLegalId"] = relation_id
+        members = flat_inputs.get(relation_id)
+        if isinstance(members, list):
+            leaf["memberCount"] = len(members)
+            leaf["memberValues"] = [
+                {
+                    "index": index + 1,
+                    "value": _normalize_input_value(
+                        member.get(legal_id) if isinstance(member, dict) else None
+                    ),
+                    "inputSource": source_state,
+                }
+                for index, member in enumerate(members)
+            ]
     return leaf
 
 
@@ -419,6 +433,19 @@ def _filter_user_supplied_values(
 
 
 _CO_SNAP_PROGRAM_SUFFIX = "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
+
+
+def _relation_size_defaults(flat: dict[str, Any]) -> dict[str, Any]:
+    for legal_id, value in flat.items():
+        if is_relation_id(legal_id) and isinstance(value, list):
+            count = max(1, len(value))
+            return {
+                "household_size": count,
+                "us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size": count,
+                "us:policies/usda/snap/fy-2026-cola/deductions#input.household_size": count,
+                "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size": count,
+            }
+    return {}
 
 
 def _dynamic_input_defaults(program_yaml: Path, flat: dict[str, Any]) -> dict[str, Any]:
@@ -616,12 +643,81 @@ def _build_trace_tree(
     relation_meta = relation_meta or {}
     rule_meta = rule_meta or {}
 
-    for legal_id, raw in raw_trace.items():
-        node = nodes[legal_id]
+    def dependency_node(
+        dep_id: str,
+        stack: set[str],
+        *,
+        parent_formula: str | None = None,
+        parent_relation_predicate: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        if dep_id in nodes:
+            return nodes[dep_id]
+        if dep_id in fixture_outputs:
+            return _fixture_output_node(dep_id, fixture_outputs[dep_id])
+        if dep_id in relation_meta:
+            rel = relation_meta[dep_id]
+            return _input_leaf(
+                rel["legal_id"],
+                flat_inputs,
+                user_keys,
+                input_meta,
+            )
+        if dep_id in rule_meta:
+            meta = rule_meta[dep_id]
+            relation_predicate = _relation_predicate_context(
+                parent_formula,
+                meta.get("name"),
+                meta.get("entity"),
+                relation_meta,
+                flat_inputs,
+            )
+            if (
+                relation_predicate is None
+                and parent_relation_predicate is not None
+                and meta.get("entity") == "Person"
+            ):
+                relation_predicate = parent_relation_predicate
+            stub = _static_rule_stub(
+                dep_id,
+                meta,
+                relation_predicate=relation_predicate,
+            )
+            if dep_id not in stack:
+                attach_dependencies(
+                    dep_id,
+                    stub,
+                    runtime_deps=[],
+                    stack={*stack, dep_id},
+                )
+            return stub
+        return None
+
+    def attach_dependencies(
+        legal_id: str,
+        node: dict[str, Any],
+        runtime_deps: list[str],
+        stack: set[str],
+    ) -> None:
         seen_child_ids: set[str] = set()
-        for dep_id in raw.get("dependencies") or []:
-            if dep_id in nodes:
-                node["children"].append(nodes[dep_id])
+        formula = node.get("formula")
+        relation_predicate_context = (
+            {
+                key: node[key]
+                for key in ("relationName", "relationLegalId", "memberCount")
+                if key in node
+            }
+            if node.get("evaluationRole") == "relationPredicate"
+            else None
+        )
+        for dep_id in runtime_deps:
+            child = dependency_node(
+                dep_id,
+                stack,
+                parent_formula=formula,
+                parent_relation_predicate=relation_predicate_context,
+            )
+            if child is not None:
+                node["children"].append(child)
                 seen_child_ids.add(dep_id)
 
         # Engine traces only report runtime rule dependencies. Static deps
@@ -641,38 +737,80 @@ def _build_trace_tree(
         for dep_id in rule_rule_deps.get(legal_id, []):
             if dep_id in seen_child_ids:
                 continue
-            if dep_id in nodes:
-                node["children"].append(nodes[dep_id])
-                seen_child_ids.add(dep_id)
-            elif dep_id in fixture_outputs:
-                node["children"].append(_fixture_output_node(dep_id, fixture_outputs[dep_id]))
-                seen_child_ids.add(dep_id)
-            elif dep_id in relation_meta:
-                rel = relation_meta[dep_id]
-                node["children"].append(
-                    _input_leaf(
-                        rel["legal_id"],
-                        flat_inputs,
-                        user_keys,
-                        input_meta,
-                    ),
-                )
-                seen_child_ids.add(dep_id)
-            elif dep_id in rule_meta:
-                node["children"].append(_static_rule_stub(dep_id, rule_meta[dep_id]))
+            child = dependency_node(
+                dep_id,
+                stack,
+                parent_formula=formula,
+                parent_relation_predicate=relation_predicate_context,
+            )
+            if child is not None:
+                node["children"].append(child)
                 seen_child_ids.add(dep_id)
 
         # Append input deps last so they sit at the bottom of the rule's
         # children list (rules first, then their leaf inputs).
         for input_id in rule_input_deps.get(legal_id, []):
+            if input_id in seen_child_ids:
+                continue
             node["children"].append(
                 _input_leaf(input_id, flat_inputs, user_keys, input_meta),
             )
+            seen_child_ids.add(input_id)
+
+    for legal_id, raw in raw_trace.items():
+        attach_dependencies(
+            legal_id,
+            nodes[legal_id],
+            runtime_deps=raw.get("dependencies") or [],
+            stack={legal_id},
+        )
 
     return {q: nodes[q] for q in queried if q in nodes}
 
 
-def _static_rule_stub(legal_id: str, meta: dict[str, Any]) -> dict[str, Any]:
+def _relation_predicate_context(
+    parent_formula: str | None,
+    dep_name: Any,
+    dep_entity: Any,
+    relation_meta: dict[str, dict[str, Any]],
+    flat_inputs: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not isinstance(parent_formula, str) or not isinstance(dep_name, str):
+        return None
+    if dep_entity != "Person":
+        return None
+    match = re.search(
+        rf"\b(?:count_where|sum_where)\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*,[^)]*\b{re.escape(dep_name)}\b",
+        parent_formula,
+    )
+    if not match:
+        return None
+    relation_name = match.group(1)
+    relation = next(
+        (
+            rel
+            for rel in relation_meta.values()
+            if rel.get("name") == relation_name
+        ),
+        None,
+    )
+    if not relation:
+        return {"relationName": relation_name}
+    relation_id = relation["legal_id"]
+    members = flat_inputs.get(relation_id)
+    return {
+        "relationName": relation_name,
+        "relationLegalId": relation_id,
+        "memberCount": len(members) if isinstance(members, list) else 0,
+    }
+
+
+def _static_rule_stub(
+    legal_id: str,
+    meta: dict[str, Any],
+    *,
+    relation_predicate: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Trace node for a rule that the formula references but that the
     engine did not evaluate this run (short-circuited AND/OR, dead IF
     branch, count_where predicate, etc.).
@@ -681,15 +819,45 @@ def _static_rule_stub(legal_id: str, meta: dict[str, Any]) -> dict[str, Any]:
     as a muted "not evaluated for this household" sub-rule that's still
     clickable to drill into the rule's own definition.
     """
-    return {
+    formula = meta.get("formula")
+    static_value = (
+        _literal_formula_value(formula)
+        if meta.get("kind") == "parameter"
+        else None
+    )
+    if static_value is None and meta.get("kind") == "parameter" and meta.get("values") is not None:
+        indexed_by = meta.get("indexed_by")
+        static_value = f"Reference table{f' by {indexed_by}' if indexed_by else ''}"
+    node = {
         "legalId": legal_id,
         "label": meta.get("name") or legal_id.split("#")[-1],
-        "value": None,
+        "value": static_value,
         "dtype": meta.get("dtype") or "judgment",
         "source": meta.get("source"),
-        "notEvaluated": True,
+        "formula": formula,
         "children": [],
     }
+    if relation_predicate is not None:
+        node["evaluationRole"] = "relationPredicate"
+        node.update(relation_predicate)
+    elif static_value is None and meta.get("kind") != "parameter":
+        node["notEvaluated"] = True
+    return node
+
+
+def _literal_formula_value(formula: Any) -> Any:
+    if not isinstance(formula, str):
+        return None
+    text = formula.strip()
+    if re.fullmatch(r"-?\d+", text):
+        return int(text)
+    if re.fullmatch(r"-?(?:\d+\.\d*|\d*\.\d+)", text):
+        return float(text)
+    if text.lower() == "true":
+        return True
+    if text.lower() == "false":
+        return False
+    return None
 
 
 def _coverage(flat_inputs: dict[str, Any], user_keys: set[str]) -> dict[str, Any]:
@@ -829,7 +997,10 @@ def _execute_real_batch(
     template = first_test_case(test) if (test := find_test_template(program_yaml)) else None
 
     flat = merge_with_template(template, user_inputs, relations)
-    dynamic_defaults = _dynamic_input_defaults(program_yaml, flat)
+    dynamic_defaults = {
+        **_relation_size_defaults(flat),
+        **_dynamic_input_defaults(program_yaml, flat),
+    }
     interval_start, interval_end = _month_bounds(period)
     inputs, relation_records = _flat_inputs_to_records(
         flat,
@@ -1086,8 +1257,13 @@ def _rule_metadata_for(
             formulas[rule.legal_id] = rule.formula
         rule_meta[rule.legal_id] = {
             "name": rule.name,
+            "kind": rule.kind,
+            "entity": rule.entity,
             "dtype": (rule.dtype or "").lower() or "decimal",
             "source": rule.source,
+            "formula": rule.formula,
+            "indexed_by": rule.indexed_by,
+            "values": rule.parameter_values,
         }
     for inp in graph.inputs.values():
         input_meta[inp.legal_id] = {
@@ -1120,10 +1296,10 @@ def _rule_metadata_for(
 
 
 def _infer_repo(program_yaml: Path) -> str:
-    """Walk up from the program YAML until a `rulespec-*` directory is hit."""
+    """Walk up from the program YAML until a rules repository directory is hit."""
     current = program_yaml.resolve()
     for parent in current.parents:
-        if parent.name.startswith("rules-"):
+        if parent.name.startswith(("rules-", "rulespec-")):
             return parent.name
     return ""
 
@@ -1171,7 +1347,12 @@ def _unique_candidates(candidates: list[str], exclude: set[str] | None = None) -
 def _rules_workspace_root(program_yaml: Path) -> Path:
     for parent in program_yaml.resolve().parents:
         if parent.name.startswith(("rules-", "rulespec-")):
+            if "artifacts" in parent.parts and "composed" in parent.parts:
+                continue
             return parent.parent
+    sibling_root = Path(__file__).resolve().parents[2]
+    if any(sibling_root.glob("rulespec-*")) or any(sibling_root.glob("rules-*")):
+        return sibling_root
     return program_yaml.resolve().parent
 
 
@@ -1302,6 +1483,7 @@ def _neutral_default_for_fixture_input(legal_id: str, raw: Any) -> dict[str, Any
     if fragment in {"member_is_us_citizen"}:
         return {"kind": "bool", "value": True}
     if fragment in {
+        "household_size",
         "self_employment_income_period_months",
         "real_property_assessment_percentage_rate",
     }:

@@ -584,7 +584,11 @@ function RuleModal({
   // so the text label should be plain words — otherwise the pill ends up
   // with double check marks ("✓ ✓ holds").
   const verdictLabel = isJudgment
-    ? current.value === "holds"
+    ? current.evaluationRole === "relationPredicate"
+      ? "evaluated per member"
+      : current.notEvaluated
+      ? "skipped in this run"
+      : current.value === "holds"
       ? "holds"
       : current.value === "not_holds"
         ? "does not hold"
@@ -732,7 +736,11 @@ function RuleModal({
                 <div className="rule-modal-summary-row">
                   <span className="rule-modal-summary-label">Trace</span>
                   <span className="rule-modal-summary-value">
-                    No formula or dependencies returned
+                    {current.notEvaluated
+                      ? "Skipped branch in this run"
+                      : current.value !== null && current.value !== undefined
+                        ? "Static reference data"
+                        : "No formula or dependencies returned"}
                   </span>
                 </div>
               </div>
@@ -1153,7 +1161,17 @@ function formatValue(
 }
 
 function formatTraceValue(node: TraceNode): string {
-  const v = node.value;
+  if (node.evaluationRole === "relationPredicate") return "Evaluated per member";
+  if (node.kind === "member" && node.memberValues?.length) {
+    return node.memberValues
+      .map((entry) => `member ${entry.index}: ${formatRawTraceValue(entry.value)}`)
+      .join("; ");
+  }
+  if (node.notEvaluated) return "Skipped in this run";
+  return formatRawTraceValue(node.value);
+}
+
+function formatRawTraceValue(v: TraceNode["value"]): string {
   if (v === null || v === undefined) return "—";
   if (v === "holds") return "✓ holds";
   if (v === "not_holds") return "✗ does not hold";

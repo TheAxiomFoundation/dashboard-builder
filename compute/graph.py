@@ -70,6 +70,8 @@ class RuleNode:
     unit: str | None = None
     source: str | None = None
     formula: str = ""
+    indexed_by: str | None = None
+    parameter_values: Any = None
     # Resolved legal IDs of rules/inputs/relations this rule depends on.
     rule_deps: list[str] = field(default_factory=list)
     input_deps: list[str] = field(default_factory=list)
@@ -82,6 +84,7 @@ class InputNode:
     name: str
     file_legal_id: str
     sample: Any = None
+    dtype: str | None = None
     # Entity scope: "Person" if the input lives under a relation member dict
     # in the test fixture (or is referenced by a Person-scope rule),
     # "Household" otherwise. Drives whether the dashboard should ask the user
@@ -146,6 +149,9 @@ def _repo_dir(parent: Path, repo: str, rel_path: str | None = None) -> Path:
             root = Path(raw).expanduser()
             candidates.append(root if root.name == repo else root / repo)
     candidates.append(parent / repo)
+    # Generated composed programs live under compute/artifacts, whose parent
+    # is not the sibling directory containing local rulespec-* checkouts.
+    candidates.append(Path(__file__).resolve().parents[2] / repo)
 
     for candidate in candidates:
         if rel_path is None:
@@ -191,9 +197,12 @@ def _add_file_to_index(
         if not name:
             continue
         formula = ""
+        parameter_values = None
         versions = rule.get("versions")
         if isinstance(versions, list) and versions:
-            formula = versions[-1].get("formula", "") or ""
+            latest = versions[-1]
+            formula = latest.get("formula", "") or ""
+            parameter_values = latest.get("values")
         node = RuleNode(
             legal_id=f"{file_id}#{name}",
             name=name,
@@ -205,6 +214,8 @@ def _add_file_to_index(
             unit=rule.get("unit"),
             source=rule.get("source"),
             formula=formula,
+            indexed_by=rule.get("indexed_by"),
+            parameter_values=parameter_values,
         )
         rules[node.legal_id] = node
         rule_local_index.setdefault(name, []).append(node)
@@ -229,6 +240,18 @@ def _resolve_dependencies(
     seen_relations: set[str] = set()
 
     for token in _tokenize_formula(node.formula):
+        # Relations: matched by relation name (the part after `relation.`).
+        # Check these before rules because RuleSpec data_relation entries are
+        # also indexed as rules with the same bare name.
+        matched_relation = False
+        for rel in relation_index.values():
+            if rel.name == token:
+                seen_relations.add(rel.legal_id)
+                matched_relation = True
+                break
+        if matched_relation:
+            continue
+
         # Other rules: prefer ones in the same file, fall back to first match.
         if token in rule_local_index:
             same_file = [r for r in rule_local_index[token] if r.file_legal_id == node.file_legal_id]
@@ -243,12 +266,6 @@ def _resolve_dependencies(
             chosen_input = same_file[0] if same_file else input_local_index[token][0]
             seen_inputs.add(chosen_input.legal_id)
             continue
-
-        # Relations: matched by relation name (the part after `relation.`).
-        for rel in relation_index.values():
-            if rel.name == token:
-                seen_relations.add(rel.legal_id)
-                break
 
     node.rule_deps = sorted(seen_rules)
     node.input_deps = sorted(seen_inputs)
@@ -278,6 +295,84 @@ def _dtype_for_fixture_value(value: Any) -> str:
             return "Date"
         return "String"
     return "Decimal"
+
+
+def _dtype_for_input_sample(value: Any) -> str | None:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return "integer"
+    if isinstance(value, float):
+        return "decimal"
+    if isinstance(value, str):
+        if len(value) == 10 and value[4] == "-" and value[7] == "-":
+            return "date"
+        return "string"
+    return None
+
+
+def _token_has_numeric_context(token: str, formula: str) -> bool:
+    escaped = re.escape(token)
+    patterns = (
+        rf"\b{escaped}\b\s*(?:[<>]=?|==|!=)",
+        rf"(?:[<>]=?|==|!=)\s*\b{escaped}\b",
+        rf"\b{escaped}\b\s*[-+*/]",
+        rf"[-+*/]\s*\b{escaped}\b",
+    )
+    return any(re.search(pattern, formula or "") for pattern in patterns)
+
+
+def _infer_input_dtype(name: str, sample: Any = None, formula: str = "", rule_dtype: str | None = None) -> str:
+    sample_dtype = _dtype_for_input_sample(sample)
+    if sample_dtype:
+        return sample_dtype
+
+    n = name.lower()
+    if "date" in n:
+        return "date"
+    if n.endswith("_age") or n == "age" or n.endswith("_size") or n.endswith("_count"):
+        return "integer"
+    if re.search(r"(^|_)(days|months|years|hours|number|ordinal)($|_)", n):
+        return "integer"
+
+    boolean_starts = (
+        "is_", "has_", "was_", "were_", "does_", "do_", "will_", "should_",
+        "can_", "must_", "resident_", "member_is_", "member_has_",
+        "household_is_", "household_has_", "household_lives_",
+        "household_contains_", "household_pays_", "household_received_",
+        "household_in_", "person_is_", "person_has_",
+    )
+    boolean_endings = (
+        "_eligible", "_active", "_received", "_paid", "_applies",
+        "_required", "_present", "_member", "_holds", "_passed",
+        "_satisfied", "_met", "_complies", "_complying", "_provided",
+        "_disqualified", "_disqualification", "_pending", "_excluded",
+        "_exempt", "_owned", "_purchased", "_terminated", "_known",
+        "_anticipated", "_assigned", "_referred", "_offered", "_allowed",
+        "_verified", "_confirmed", "_separately",
+    )
+    boolean_contains = (
+        "_entitled_to_", "_eligible_for_", "_subject_to_",
+        "_responsible_for_", "_required_to_", "_exempt_from_",
+        "_refused_or_failed_", "_failed_to_", "_is_", "_has_",
+    )
+    if (
+        n.startswith(boolean_starts)
+        or any(n.endswith(suffix) for suffix in boolean_endings)
+        or any(piece in n for piece in boolean_contains)
+    ):
+        return "boolean"
+
+    if (
+        (rule_dtype or "").lower() == "judgment"
+        and formula
+        and not _token_has_numeric_context(name, formula)
+    ):
+        return "boolean"
+
+    if re.search(r"income|wage|cost|expense|allotment|amount|deduction|payment|earnings|value", n):
+        return "money"
+    return "decimal"
 
 
 def _add_fixture_outputs_to_index(
@@ -390,11 +485,31 @@ def build_graph(program_yaml: Path, repo: str) -> ProgramGraph:
                     name=name_part.removeprefix("input."),
                     file_legal_id=file_part,
                     sample=sample,
+                    dtype=_infer_input_dtype(
+                        name_part.removeprefix("input."),
+                        sample,
+                    ),
                     entity="Person" if relation_id else "Household",
                     relation_legal_id=relation_id,
                 )
 
     _add_fixture_outputs_to_index(template, rules, rule_local_index)
+
+    # Composed programs may not have a .test.yaml fixture yet. In that case
+    # discover relation definitions from imported RuleSpec data_relation rules
+    # so Person-scope inputs can still be routed through household members.
+    for rule in rules.values():
+        if rule.kind != "data_relation":
+            continue
+        relation_id = f"{rule.file_legal_id}#relation.{rule.name}"
+        relations.setdefault(
+            relation_id,
+            RelationNode(
+                legal_id=relation_id,
+                name=rule.name,
+                file_legal_id=rule.file_legal_id,
+            ),
+        )
 
     input_local_index: dict[str, list[InputNode]] = {}
     for inp in inputs.values():
@@ -429,16 +544,24 @@ def build_graph(program_yaml: Path, repo: str) -> ProgramGraph:
                     if rel_name in _tokenize_formula(rule.formula):
                         rel_id = relation_id_by_name.get(rel_name)
                         break
+                if rel_id is None and len(relation_id_by_name) == 1:
+                    rel_id = next(iter(relation_id_by_name.values()))
             node = InputNode(
                 legal_id=synthesized_id,
                 name=token,
                 file_legal_id=rule.file_legal_id,
                 sample=None,
+                dtype=_infer_input_dtype(token, None, rule.formula, rule.dtype),
                 entity=entity,
                 relation_legal_id=rel_id,
             )
             inputs[synthesized_id] = node
             input_local_index.setdefault(token, []).append(node)
+            if rel_id and rel_id in relations:
+                relations[rel_id].member_input_ids.append(node.legal_id)
+
+    for relation in relations.values():
+        relation.member_input_ids = sorted(set(relation.member_input_ids))
 
     for node in rules.values():
         _resolve_dependencies(node, rule_local_index, input_local_index, relations)
@@ -546,6 +669,7 @@ def graph_to_dict(graph: ProgramGraph) -> dict[str, Any]:
                 "name": i.name,
                 "fileLegalId": i.file_legal_id,
                 "sample": i.sample,
+                "dtype": i.dtype,
                 "entity": i.entity,
                 "relationLegalId": i.relation_legal_id,
             }
