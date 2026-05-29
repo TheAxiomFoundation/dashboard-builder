@@ -695,6 +695,7 @@ body, html, #root {
   user-select: none;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 14px 18px;
   border: 1px solid var(--color-rule);
@@ -738,6 +739,7 @@ body, html, #root {
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--color-ink);
+  min-width: 0;
 }
 
 .explanation[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
@@ -763,6 +765,8 @@ body, html, #root {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 16px;
   margin-bottom: 6px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--color-rule-subtle);
@@ -772,6 +776,8 @@ body, html, #root {
   font-weight: 500;
   font-size: 14px;
   color: var(--color-ink);
+  min-width: 0;
+  word-break: break-word;
 }
 
 .explanation-result {
@@ -780,6 +786,7 @@ body, html, #root {
   font-size: 15px;
   color: var(--color-accent);
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 
 .trace-list {
@@ -846,14 +853,15 @@ body, html, #root {
   padding-left: 22px;
 }
 
-/* Expand-all / collapse-all controls in the explanation summary */
+/* Expand-all / collapse-all controls in the explanation summary.
+   Pushed to the right by `margin-left: auto`; allowed to wrap below
+   the title on narrow widths via `flex-wrap: wrap` on the summary. */
 .explanation-controls {
   display: inline-flex;
   gap: 6px;
   margin-left: auto;
+  flex-shrink: 0;
 }
-
-.explanation > summary { display: flex; align-items: center; gap: 12px; }
 
 .explanation-controls .btn.ghost {
   font-family: var(--f-mono);
@@ -928,9 +936,16 @@ body, html, #root {
 }
 
 .trace-line {
+  /* Was `align-items: baseline` — but the inline pills (kind tag,
+     source badge, expose/add-output buttons) don't share a sensible
+     baseline with the name text, so they appeared visually misaligned.
+     `center` lines everything up on the row midpoint. `flex-wrap` lets
+     the trailing badges/buttons drop to a second line at narrow widths
+     instead of clipping or pushing the value off-screen. */
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   padding: 3px 0;
   min-width: 0;
 }
@@ -954,7 +969,11 @@ body, html, #root {
   color: var(--color-ink);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .trace-source {
@@ -1259,7 +1278,7 @@ body, html, #root {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
+  gap: 12px 24px;
   flex-wrap: wrap;
 }
 
@@ -1272,7 +1291,10 @@ body, html, #root {
   color: var(--color-ink);
   margin: 0;
   word-break: break-word;
-  flex: 1;
+  /* `flex: 1` alone (=`1 1 0`) made long names hog the row and
+     squeeze the verdict pill. `1 1 auto` lets the verdict pill keep
+     its natural width and the name take the rest. */
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -1820,7 +1842,7 @@ body, html, #root {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px 16px;
   margin-bottom: 14px;
   flex-wrap: wrap;
 }
@@ -1829,12 +1851,15 @@ body, html, #root {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .rule-modal-view-toggle .rule-modal-section-eyebrow {
   margin: 0;
   border-bottom: none;
   padding-bottom: 0;
+  min-width: 0;
 }
 
 .view-toggle {
@@ -2257,6 +2282,8 @@ body, html, #root {
   border: 1px solid currentColor;
   white-space: nowrap;
   margin: 0 1px;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .pill-glyph {
@@ -2269,10 +2296,14 @@ body, html, #root {
   padding: 0 2px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
 }
 
 .pill-name {
   font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pill-value {
@@ -2406,9 +2437,9 @@ body, html, #root {
   text-transform: uppercase;
   padding: 2px 7px;
   border-radius: 2px;
-  margin-left: 8px;
   border: 1px solid currentColor;
   cursor: default;
+  flex-shrink: 0;
 }
 
 .trace-source-badge.user {
@@ -2433,7 +2464,6 @@ body, html, #root {
   text-transform: uppercase;
   padding: 2px 8px;
   border-radius: 2px;
-  margin-left: 6px;
   cursor: pointer;
   transition: all 120ms;
   flex-shrink: 0;
@@ -2456,7 +2486,6 @@ body, html, #root {
   text-transform: uppercase;
   padding: 2px 8px;
   border-radius: 2px;
-  margin-left: 6px;
   cursor: pointer;
   transition: all 120ms;
   flex-shrink: 0;
