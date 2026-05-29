@@ -26,12 +26,25 @@ def find_test_template(program_path: Path) -> Path | None:
 
 def first_test_case(test_path: Path) -> dict[str, Any] | None:
     """Return the first test case from a .test.yaml file (used as default-value template)."""
+    cases = list(iter_test_cases(test_path))
+    return cases[0] if cases else None
+
+
+def iter_test_cases(test_path: Path) -> Iterable[dict[str, Any]]:
+    """Yield every test case in a .test.yaml. Sensitivity uses these as
+    representative households to perturb against — they're program-author
+    curated, guaranteed runnable, and naturally use the program's own
+    naming convention. Beats name-pattern heuristics.
+    """
     raw = yaml.safe_load(test_path.read_text())
-    if isinstance(raw, list) and raw:
-        return raw[0]
-    if isinstance(raw, dict) and isinstance(raw.get("cases"), list) and raw["cases"]:
-        return raw["cases"][0]
-    return None
+    if isinstance(raw, list):
+        for entry in raw:
+            if isinstance(entry, dict):
+                yield entry
+    elif isinstance(raw, dict) and isinstance(raw.get("cases"), list):
+        for entry in raw["cases"]:
+            if isinstance(entry, dict):
+                yield entry
 
 
 def split_id(legal_id: str) -> tuple[str, str]:

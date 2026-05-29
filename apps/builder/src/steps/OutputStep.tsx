@@ -263,16 +263,24 @@ export function OutputStep({
       ...draft,
       outputs: [...draft.outputs, selectOutput(rule)],
     };
-    // Auto-apply the curated program's recommended starter inputs
-    // whenever the user picks their first main result AND nothing's
-    // exposed yet. We deliberately don't gate on the persisted
-    // `usedRecommendedSetup` flag — that bit gets stuck across
-    // sessions and would prevent re-applying after the user clears
-    // their picks and starts fresh. The empty-inputs check already
-    // guarantees we don't double-apply on top of existing exposures,
-    // and applyRecommendedSetup dedupes per-input regardless.
+    // Auto-apply the curated program's recommended starter inputs only
+    // when the user is on the predictable "well-trodden path" — i.e.
+    // they picked a curated mainOutput like eligibility or benefit
+    // amount. For custom output picks (e.g. an internal rule like
+    // shelter deduction) we leave the form empty so sensitivity-driven
+    // core questions can drive the suggested set. We deliberately
+    // don't gate on the persisted `usedRecommendedSetup` flag — that
+    // bit gets stuck across sessions and would prevent re-applying
+    // after the user clears their picks and starts fresh.
     const curated = curatedForDraft(draft.program);
+    const curatedMainOutputIds = new Set(
+      (curated?.mainOutputs ?? []).map((output) => output.legalId),
+    );
+    const isWellTroddenPath =
+      curatedMainOutputIds.size > 0 &&
+      next.outputs.every((output) => curatedMainOutputIds.has(output.legalId));
     if (
+      isWellTroddenPath &&
       next.outputs.length === 1 &&
       next.inputs.length === 0 &&
       next.relations.length === 0 &&
@@ -316,7 +324,14 @@ export function OutputStep({
       })],
     };
     const curated = curatedForDraft(draft.program);
+    const curatedMainOutputIds = new Set(
+      (curated?.mainOutputs ?? []).map((output) => output.legalId),
+    );
+    const isWellTroddenPath =
+      curatedMainOutputIds.size > 0 &&
+      next.outputs.every((output) => curatedMainOutputIds.has(output.legalId));
     if (
+      isWellTroddenPath &&
       draft.outputs.length === 0 &&
       next.inputs.length === 0 &&
       next.relations.length === 0 &&

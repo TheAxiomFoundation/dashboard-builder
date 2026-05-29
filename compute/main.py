@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,7 @@ from spec_loader import (
     first_test_case,
     is_input_id,
     is_relation_id,
+    iter_test_cases,
 )
 
 app = FastAPI(title="dashboard-builder compute", version="0.0.1")
@@ -57,7 +59,10 @@ app.add_middleware(
 _config = RegistryConfig.from_env()
 _mode: ComputeMode = detect_mode()
 _sensitivity_cache: dict[str, SensitivityResponseBody] = {}
-_SENSITIVITY_MAX_WORKERS = 8
+# Multi-scenario sensitivity submits (scenario × input) perturbations
+# to a single pool, so the worker count needs to absorb several scenarios
+# at once. The bottleneck is the engine subprocess, not the wrapper.
+_SENSITIVITY_MAX_WORKERS = 16
 
 
 class HealthResponse(BaseModel):
@@ -268,6 +273,12 @@ class SensitivityResponseBody(BaseModel):
     # Inputs we couldn't perturb (date / string / unknown shape) or
     # that crashed the engine on perturbation.
     skipped: list[str]
+    # Names of scenarios whose baseline ran cleanly. A scenario is the
+    # synthetic household we perturb against. Multi-scenario analysis
+    # unions the load-bearing sets so an input counts as load-bearing
+    # if it moves any picked output for any household.
+    scenarios_tested: list[str] = Field(default_factory=list)
+    scenarios_skipped: list[str] = Field(default_factory=list)
     mode: str
 
 
@@ -318,9 +329,180 @@ def _pick_perturbation(name: str, sample: Any) -> Any | None:
     return None
 
 
+@dataclass
+class Scenario:
+    """One representative household to perturb against. Built from a
+    program's `.test.yaml` fixture — each test case is a fully-specified,
+    program-author-curated input set that's guaranteed runnable (it's a
+    test). Using fixtures means we never have to guess input names; the
+    program's own naming convention is followed automatically.
+    """
+    name: str
+    inputs: dict[str, Any]
+    relations: dict[str, list[dict[str, Any]]]
+
+
+# Cap the number of fixture cases used as scenarios. Each case is N
+# engine calls (one per closure input), so cost is linear in cases.
+# Three covers most real fixtures' diversity without burning minutes.
+_MAX_FIXTURE_SCENARIOS = 3
+
+
+def _file_path_for_legal_id(file_legal_id: str) -> Path | None:
+    """Map `us:regulations/7-cfr/273/10` → `<rules_root>/rules-us/regulations/7-cfr/273/10.yaml`.
+
+    The repo prefix convention is `<prefix>:` → `rules-<prefix>`. If the
+    target file doesn't exist on disk we return None and the caller
+    falls back to the next candidate fixture source.
+    """
+    head, sep, rest = file_legal_id.partition(":")
+    if not sep or not rest:
+        return None
+    repo = f"rules-{head}"
+    try:
+        return resolve_program(_config, repo, f"{rest}.yaml")
+    except FileNotFoundError:
+        return None
+
+
+def _load_cases_from_fixture(yaml_path: Path) -> list[Scenario]:
+    """Parse every test case from the sibling .test.yaml into Scenarios."""
+    template = find_test_template(yaml_path)
+    if not template:
+        return []
+    scenarios: list[Scenario] = []
+    for index, case in enumerate(iter_test_cases(template)):
+        flat = case.get("input") or {}
+        if not isinstance(flat, dict):
+            continue
+        case_inputs: dict[str, Any] = {}
+        case_relations: dict[str, list[dict[str, Any]]] = {}
+        for legal_id, value in flat.items():
+            if is_relation_id(legal_id):
+                members = value if isinstance(value, list) else []
+                case_relations[legal_id] = [
+                    dict(m) for m in members if isinstance(m, dict)
+                ]
+            else:
+                case_inputs[legal_id] = value
+        name = case.get("name") or f"case_{index}"
+        scenarios.append(
+            Scenario(name=name, inputs=case_inputs, relations=case_relations)
+        )
+    return scenarios
+
+
+def _stack_scenarios(base: Scenario | None, overlay: Scenario) -> Scenario:
+    """Layer `overlay` on top of `base` and return a merged Scenario.
+    Overlay wins on conflicts. If `base` is None, returns a copy of
+    `overlay`.
+
+    This composes a program-baseline fixture case (which knows about
+    composing-program-specific input slots, e.g. CO's household_size)
+    with a source-file fixture case (which knows about the queried
+    rule's natural inputs, e.g. federal aggregate shelter expenses).
+    """
+    if base is None:
+        return Scenario(
+            name=overlay.name,
+            inputs=dict(overlay.inputs),
+            relations={
+                k: [dict(m) for m in v] for k, v in overlay.relations.items()
+            },
+        )
+    inputs = dict(base.inputs)
+    inputs.update(overlay.inputs)
+    relations: dict[str, list[dict[str, Any]]] = {
+        k: [dict(m) for m in v] for k, v in base.relations.items()
+    }
+    for rel_id, members in overlay.relations.items():
+        relations[rel_id] = [dict(m) for m in members]
+    return Scenario(name=overlay.name, inputs=inputs, relations=relations)
+
+
+def _load_fixture_scenarios(
+    program_path: Path,
+    queried_outputs: list[str],
+) -> list[Scenario]:
+    """Pull representative households to perturb against.
+
+    Strategy: layer two fixtures.
+      1. **Program fixture** (e.g. CO SNAP) — provides values for the
+         composing program's specific input slots (CO-namespaced
+         household_size, residency flags, etc.). Used as the baseline
+         foundation so the engine has a runnable household shape.
+      2. **Source-file fixture** (the file defining a queried output)
+         — overlays the aggregate inputs that the queried rule reads
+         directly (e.g. federal `snap_total_allowable_shelter_expenses`
+         when querying a federal output from CO SNAP). Without this
+         layer, those aggregates default to 0 and most perturbations
+         can't move the result.
+
+    Falling back to either fixture alone is supported when one is
+    missing. We dedupe scenarios by name and cap the total to keep
+    sensitivity latency bounded.
+    """
+    program_cases = _load_cases_from_fixture(program_path)
+    program_base = program_cases[0] if program_cases else None
+
+    # Collect cases from each unique queried-output source file.
+    overlay_cases: list[Scenario] = []
+    seen_files: set[Path] = {program_path}
+    seen_names: set[str] = set()
+
+    for oid in queried_outputs:
+        file_legal_id = oid.split("#", 1)[0]
+        source_yaml = _file_path_for_legal_id(file_legal_id)
+        if not source_yaml or source_yaml in seen_files:
+            continue
+        seen_files.add(source_yaml)
+        for case in _load_cases_from_fixture(source_yaml):
+            if case.name in seen_names:
+                continue
+            seen_names.add(case.name)
+            overlay_cases.append(case)
+
+    # When the queried outputs all live in the program's own file
+    # (or no source file resolved), the program's cases ARE the
+    # scenarios — no overlay needed.
+    if not overlay_cases:
+        return program_cases[:_MAX_FIXTURE_SCENARIOS]
+
+    # Otherwise stack each overlay case on the program baseline.
+    scenarios = [
+        _stack_scenarios(program_base, overlay) for overlay in overlay_cases
+    ]
+    return scenarios[:_MAX_FIXTURE_SCENARIOS]
+
+
+def _merge_scenario_payload(
+    scenario: Scenario,
+    base_inputs: dict[str, Any],
+    base_relations: dict[str, list[dict[str, Any]]] | None,
+) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
+    """Layer the caller's inputs/relations on top of the fixture case.
+    Caller wins on conflicts — they're explicitly specifying values they
+    want the perturbation to be measured against.
+    """
+    inputs = dict(scenario.inputs)
+    inputs.update(base_inputs)
+
+    relations: dict[str, list[dict[str, Any]]] = {
+        k: [dict(m) for m in v] for k, v in scenario.relations.items()
+    }
+    if base_relations:
+        for rel_id, members in base_relations.items():
+            relations[rel_id] = [dict(m) for m in members]
+    return inputs, relations
+
+
+_SENSITIVITY_CACHE_VERSION = 4  # bump when scenarios or perturbation logic changes
+
+
 def _sensitivity_cache_key(body: SensitivityRequestBody, period: str) -> str:
     return json.dumps(
         {
+            "v": _SENSITIVITY_CACHE_VERSION,
             "program": body.program,
             "period": period,
             "queried_outputs": sorted(body.queried_outputs),
@@ -377,42 +559,49 @@ def sensitivity(body: SensitivityRequestBody) -> SensitivityResponseBody:
             mode=_mode.name,
         )
 
-    # ── Baseline ────────────────────────────────────────────────────
-    try:
-        baseline_payload = execute_real(
-            program_yaml=program_path,
-            rules_root=_config.root,
-            user_inputs=dict(body.inputs),
-            relations=dict(body.relations) if body.relations else None,
-            queried_outputs=body.queried_outputs,
-            period=period,
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"baseline compute failed: {exc}",
-        ) from exc
-    if baseline_payload.get("warnings"):
+    # ── Scenarios ───────────────────────────────────────────────────
+    # Pull representative households from the program's own test
+    # fixture instead of hand-tuning pattern-based seeds. Fixtures are
+    # program-author curated, guaranteed runnable, and naturally use
+    # the program's naming convention. Iterating across cases +
+    # unioning load-bearing sets catches inputs that only move the
+    # result for certain household shapes (elderly, homeless, etc.).
+    fixture_scenarios = _load_fixture_scenarios(program_path, body.queried_outputs)
+    if not fixture_scenarios:
         raise HTTPException(
             status_code=502,
-            detail="baseline compute returned warnings; sensitivity would be based on fallback values",
+            detail=(
+                f"no test fixture for {path} or its queried outputs; cannot "
+                "run sensitivity without a representative household to perturb against"
+            ),
         )
-    baseline_outputs = _outputs_map(baseline_payload)
+    aggregate_load_bearing: dict[str, set[str]] = {
+        oid: set() for oid in body.queried_outputs
+    }
+    aggregate_effects: dict[str, list[dict[str, Any]]] = {}
+    tested_inputs: set[str] = set()
+    perturbation_unsupported: set[str] = set()
+    scenarios_tested: list[str] = []
+    scenarios_skipped: list[dict[str, str]] = []
+    first_successful_baseline: list[dict[str, Any]] | None = None
 
-    def test_input(input_id: str) -> tuple[str, dict[str, Any]]:
+    def perturb_one(
+        input_id: str,
+        scenario_inputs: dict[str, Any],
+        scenario_relations: dict[str, list[dict[str, Any]]],
+        baseline_outputs: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
         node = inputs_by_id.get(input_id)
         if not node:
             return ("skipped", {"input_id": input_id})
 
         perturbation = _pick_perturbation(node.name, node.sample)
         if perturbation is None:
-            return ("skipped", {"input_id": input_id})
+            return ("unsupported", {"input_id": input_id})
 
-        # Build perturbed request: deep-copy baseline inputs/relations
-        # then overwrite this one input.
-        pert_inputs = dict(body.inputs)
+        pert_inputs = dict(scenario_inputs)
         pert_relations: dict[str, list[dict[str, Any]]] = (
-            {k: [dict(m) for m in v] for k, v in (body.relations or {}).items()}
+            {k: [dict(m) for m in v] for k, v in scenario_relations.items()}
         )
         if node.entity == "Person" and node.relation_legal_id:
             members = pert_relations.setdefault(node.relation_legal_id, [{}])
@@ -450,32 +639,107 @@ def sensitivity(body: SensitivityRequestBody) -> SensitivityResponseBody:
             return ("no_effect", {"input_id": input_id})
         return ("moved", {"input_id": input_id, "effects": moved})
 
-    load_bearing: dict[str, list[str]] = {oid: [] for oid in body.queried_outputs}
-    effects: dict[str, list[dict[str, Any]]] = {}
-    no_effect: list[str] = []
-    skipped: list[str] = []
+    # Phase 1: layer caller inputs over each fixture case and run all
+    # baselines in parallel. Scenarios that crash or surface warnings
+    # are dropped — we keep going as long as at least one survives.
+    prepared = [
+        (scenario, *_merge_scenario_payload(scenario, body.inputs, body.relations))
+        for scenario in fixture_scenarios
+    ]
 
+    def run_baseline(
+        scenario: Scenario,
+        s_inputs: dict[str, Any],
+        s_relations: dict[str, list[dict[str, Any]]],
+    ) -> tuple[Scenario, dict[str, Any] | None, str | None]:
+        try:
+            payload = execute_real(
+                program_yaml=program_path,
+                rules_root=_config.root,
+                user_inputs=s_inputs,
+                relations=s_relations or None,
+                queried_outputs=body.queried_outputs,
+                period=period,
+            )
+        except Exception as exc:
+            return scenario, None, f"engine error: {exc}"
+        if payload.get("warnings"):
+            return scenario, None, payload["warnings"][0]
+        return scenario, payload, None
+
+    surviving_scenarios: list[tuple[Scenario, dict[str, Any], dict[str, list[dict[str, Any]]], dict[str, Any]]] = []
     with ThreadPoolExecutor(max_workers=_SENSITIVITY_MAX_WORKERS) as executor:
-        futures = [executor.submit(test_input, input_id) for input_id in closure_input_ids]
+        futures = {
+            executor.submit(run_baseline, scenario, s_inputs, s_relations): (scenario, s_inputs, s_relations)
+            for scenario, s_inputs, s_relations in prepared
+        }
+        for future in as_completed(futures):
+            scenario, s_inputs, s_relations = futures[future]
+            _, payload, reason = future.result()
+            if payload is None:
+                scenarios_skipped.append({"name": scenario.name, "reason": reason or "unknown"})
+                continue
+            if first_successful_baseline is None:
+                first_successful_baseline = payload.get("outputs", [])
+            scenarios_tested.append(scenario.name)
+            surviving_scenarios.append((scenario, s_inputs, s_relations, _outputs_map(payload)))
+
+    # Phase 2: cross-product of (surviving scenario × closure input) in
+    # a single executor pool. Maximizes engine utilization compared to
+    # iterating scenarios one at a time.
+    with ThreadPoolExecutor(max_workers=_SENSITIVITY_MAX_WORKERS) as executor:
+        futures = []
+        for scenario, s_inputs, s_relations, baseline_outputs in surviving_scenarios:
+            for input_id in closure_input_ids:
+                futures.append(
+                    executor.submit(
+                        perturb_one, input_id, s_inputs, s_relations, baseline_outputs,
+                    )
+                )
         for future in as_completed(futures):
             status, payload = future.result()
             input_id = payload["input_id"]
+            if status == "unsupported":
+                perturbation_unsupported.add(input_id)
+                continue
             if status == "skipped":
-                skipped.append(input_id)
-            elif status == "no_effect":
-                no_effect.append(input_id)
-            else:
-                moved_effects = payload["effects"]
-                effects[input_id] = moved_effects
-                for effect in moved_effects:
-                    load_bearing[effect["output"]].append(input_id)
+                continue
+            tested_inputs.add(input_id)
+            if status == "moved":
+                aggregate_effects.setdefault(input_id, []).extend(payload["effects"])
+                for effect in payload["effects"]:
+                    aggregate_load_bearing[effect["output"]].add(input_id)
+
+    load_bearing_inputs = set().union(*aggregate_load_bearing.values()) if aggregate_load_bearing else set()
+    no_effect = sorted(tested_inputs - load_bearing_inputs)
+    # An input is skipped if no scenario produced a perturbation result
+    # AND we couldn't even build a perturbation for it (date/string/
+    # unknown shape). Anything else is "tested and no effect".
+    skipped = sorted(perturbation_unsupported - tested_inputs)
+    # Inputs that crashed in every scenario also land here.
+    unreached = sorted(set(closure_input_ids) - tested_inputs - perturbation_unsupported)
+    skipped.extend(unreached)
+
+    if not scenarios_tested:
+        # Every scenario failed its baseline — surface a clear error so
+        # the UI can show a helpful message instead of an empty list.
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "no scenario baseline ran cleanly; sensitivity would be "
+                f"based on fallback values. Scenarios skipped: "
+                f"{[s['name'] for s in scenarios_skipped]}"
+            ),
+        )
 
     response = SensitivityResponseBody(
-        baseline=baseline_payload.get("outputs", []),
-        load_bearing=load_bearing,
-        effects=effects,
+        baseline=first_successful_baseline or [],
+        load_bearing={oid: sorted(ids) for oid, ids in aggregate_load_bearing.items()},
+        effects=aggregate_effects,
         no_effect=no_effect,
         skipped=skipped,
+        scenarios_tested=scenarios_tested,
+        scenarios_skipped=[s["name"] for s in scenarios_skipped],
         mode=_mode.name,
     )
     _sensitivity_cache[cache_key] = response.model_copy(deep=True)
