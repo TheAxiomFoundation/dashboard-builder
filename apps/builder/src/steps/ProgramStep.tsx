@@ -234,7 +234,7 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
   },
   {
     repo: "rulespec-us-ca",
-    path: "programs/snap/fy-2026.yaml",
+    path: "policies/cdss/snap/fy-2026-benefit-calculation.yaml",
     label: "California SNAP (CalFresh)",
     labelPrefix: "snap",
     recommendedMemberCount: 1,
@@ -350,9 +350,14 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
     ],
     mainOutputs: [
       {
-        legalId: "us-ca:programs/snap/fy-2026#snap_eligible",
+        legalId: "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_eligible",
         label: "Eligibility",
         blurb: "Whether the household appears eligible for CalFresh.",
+      },
+      {
+        legalId: "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit",
+        label: "Benefit amount",
+        blurb: "How much the household receives each month if eligible.",
       },
     ],
   },
