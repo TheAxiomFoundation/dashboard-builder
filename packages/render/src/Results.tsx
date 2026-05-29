@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type {
   ComputeCoverage,
   DashboardSpec,
@@ -554,13 +555,23 @@ function RuleModal({
   // Build a fast lookup: token (formula identifier) → child trace node.
   // Used to enrich the formula tokens inline so we don't need a separate
   // "sub-rules" or "inputs" list — the formula is the explanation.
+  //
+  // Strip BOTH `input.` and `relation.` prefixes from the legal-id tail.
+  // Formulas reference inputs and relations by their bare name (the part
+  // after the prefix), but legal IDs carry the prefix to distinguish
+  // them. Without stripping `relation.`, a formula token like
+  // `member_of_household` would fail to find its trace child (legal id
+  // `…#relation.member_of_household`), and RuleGraph would fall through
+  // to the "unknown" branch — rendering the relation as a generic grey
+  // dashed box instead of a green relation node with its member count.
   const tokenIndex = useMemo(() => {
     const m = new Map<string, TraceNode>();
     for (const c of current.children ?? []) {
-      // Inputs come from graph parsing; their token form is the bare name
-      // (after `#input.`). Rules are matched by their `.label`.
       if (c.dtype === "input") {
-        const bare = c.legalId.split("#").pop()?.replace(/^input\./, "");
+        const bare = c.legalId
+          .split("#")
+          .pop()
+          ?.replace(/^(?:input|relation)\./, "");
         if (bare) m.set(bare, c);
       } else if (c.label) {
         m.set(c.label, c);
@@ -569,12 +580,15 @@ function RuleModal({
     return m;
   }, [current]);
 
+  // Glyph (✓/✗/?) is rendered separately via `rule-modal-verdict-glyph`,
+  // so the text label should be plain words — otherwise the pill ends up
+  // with double check marks ("✓ ✓ holds").
   const verdictLabel = isJudgment
     ? current.value === "holds"
-      ? "✓ holds"
+      ? "holds"
       : current.value === "not_holds"
-        ? "✗ does not hold"
-        : "?"
+        ? "does not hold"
+        : "undetermined"
     : formatTraceValue(current);
 
   const verdictClass = isJudgment
@@ -585,7 +599,16 @@ function RuleModal({
         : "verdict-undet"
     : "verdict-numeric";
 
-  return (
+  // Portal to body so the modal escapes any ancestor stacking context.
+  // The app shell renders a sticky header at z-index 10 inside an `.app`
+  // wrapper that creates its own stacking context (`position: relative;
+  // z-index: 1`). When the modal is rendered inline inside the preview
+  // pane, its z-index resolves *within* `.app`'s context and the header
+  // ends up painting on top of the modal's title bar. Portal-to-body
+  // makes the modal a sibling of `.app`, so its z-index is global.
+  const modalRoot = typeof document !== "undefined" ? document.body : null;
+  if (!modalRoot) return null;
+  return createPortal(
     <div className="rule-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
       <div className="rule-modal" onClick={(e) => e.stopPropagation()}>
         <header className="rule-modal-head">
@@ -734,7 +757,8 @@ function RuleModal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    modalRoot,
   );
 }
 

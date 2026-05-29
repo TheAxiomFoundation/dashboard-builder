@@ -33,6 +33,20 @@ export interface TraceNode {
   label?: string;
   value: number | string | boolean | null;
   dtype: OutputValue["dtype"] | "input";
+  /**
+   * Distinguishes scalar inputs from relations (lists of members) and
+   * per-member inputs (Person-scope inputs read once per relation member).
+   * Defaults to "scalar" when omitted for backward compatibility with old
+   * traces. The renderer uses this to avoid showing relations as
+   * default-grey when the caller actually populated members, and to label
+   * per-member inputs with "per member" instead of treating them as a
+   * top-level scalar form field.
+   */
+  kind?: "scalar" | "relation" | "member";
+  /** For `kind: "relation"` only — how many members the caller supplied. */
+  memberCount?: number;
+  /** For `kind: "member"` only — the relation legal id this input belongs to. */
+  relationLegalId?: LegalId;
   /** Source citation (statute / regulation reference). For inputs, this is a humanized form of the home-file legal ID. */
   source?: string;
   /** For rule nodes: the latest-version formula text from the YAML — the actual condition that produced this value. */
@@ -41,6 +55,14 @@ export interface TraceNode {
   inputSource?: "user" | "default";
   /** For input-leaf nodes only: the file legal ID where the input lives (e.g. `us-co:regulations/10-ccr-2506-1/4.407.31`). */
   homeFile?: string;
+  /**
+   * True for rule nodes the formula references but that the engine did
+   * not evaluate this run (other side of a short-circuited AND/OR, dead
+   * branch of an IF, count_where predicate when the outer rule never
+   * reached it). `value` is null in this case; the renderer should show
+   * the node as muted/not-evaluated rather than as a missing dependency.
+   */
+  notEvaluated?: boolean;
   /** Children = sub-rules / inputs that fed into this one. */
   children?: TraceNode[];
 }

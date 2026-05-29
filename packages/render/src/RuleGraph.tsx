@@ -66,6 +66,30 @@ export function RuleGraph({
 
   return (
     <div className={`rg-wrap rg-mode-${mode}`}>
+      {/* Legend — explains the visual language so users don't have to
+          guess what the dashed vs solid borders and color tints mean. */}
+      <div className="rg-legend" role="note" aria-label="Graph legend">
+        <span className="rg-legend-item">
+          <span className="rg-legend-swatch rg-legend-swatch-user" aria-hidden />
+          User input
+        </span>
+        <span className="rg-legend-item">
+          <span className="rg-legend-swatch rg-legend-swatch-default" aria-hidden />
+          Fixture default
+        </span>
+        <span className="rg-legend-item">
+          <span className="rg-legend-swatch rg-legend-swatch-relation" aria-hidden />
+          Relation (members)
+        </span>
+        <span className="rg-legend-item">
+          <span className="rg-legend-swatch rg-legend-swatch-member" aria-hidden />
+          Per-member input
+        </span>
+        <span className="rg-legend-item">
+          <span className="rg-legend-swatch rg-legend-swatch-rule" aria-hidden />
+          Derived rule
+        </span>
+      </div>
       <svg
         className="rg-svg"
         viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -206,8 +230,18 @@ interface GraphNode {
   onClick?: () => void;
 }
 
-/** Cap node width so dagre lays things out cleanly; long labels truncate with ellipsis + tooltip. */
-const MAX_LEAF_WIDTH = 240;
+/** Cap node width so dagre lays things out cleanly. Wider than the
+ * original 240 so common rule-pack names (~38 chars like
+ * `snap_member_work_requirement_eligible`) fit on a single line.
+ * Labels longer than this *wrap* onto multiple lines — the node grows
+ * taller via `leafDimensions` rather than truncating with ellipsis,
+ * so the full identifier is always readable. */
+const MAX_LEAF_WIDTH = 340;
+/** Hard limit on label length so a pathologically long identifier
+ * can't blow up the node height to the point it dominates the canvas.
+ * Beyond this we ellipsis-truncate, but the full name still shows in
+ * the hover title attribute. */
+const MAX_LABEL_CHARS = 96;
 
 interface GraphEdge {
   id: string;
@@ -269,15 +303,17 @@ function layoutAst(
         const t = lookup(node.name);
         if (!t) {
           const full = node.name;
-          const display = truncateLabel(full, 30);
-          const w = sizeForLeaf(display);
-          g.setNode(my, { width: w, height: 50 });
+          const { width: w, height: h, display } = leafDimensions(full, {
+            hasSubLabel: false,
+            hasValue: false,
+          });
+          g.setNode(my, { width: w, height: h });
           nodes.push({
             id: my,
             x: 0,
             y: 0,
             width: w,
-            height: 50,
+            height: h,
             label: display,
             fullLabel: full,
             valueDisplay: "",
@@ -288,49 +324,117 @@ function layoutAst(
           return my;
         }
         if (t.dtype === "input") {
+          // Three input shapes the engine emits:
+          //   • scalar   — single household-level value (the normal case)
+          //   • relation — a `#relation.*` list whose value is the member
+          //                count; "populated by the caller" means members
+          //                were supplied, not a scalar value.
+          //   • member   — a Person-scope `#input.*` that the engine reads
+          //                once per relation member. Its "source" is the
+          //                parent relation's member dicts, not a top-level
+          //                form field.
+          const kind = t.kind ?? "scalar";
           const exposed =
             exposedInputIds?.has(t.legalId) ?? t.inputSource === "user";
           const full = t.label || node.name;
-          const display = truncateLabel(full, 30);
-          const w = sizeForLeaf(display);
           const canExpose = !exposed && !!onExposeInput;
-          g.setNode(my, { width: w, height: 60 });
+          const dims = leafDimensions(full, {
+            hasSubLabel: true,
+            hasValue: showValues,
+          });
+          const w = dims.width;
+          const h = dims.height;
+          const display = dims.display;
+
+          let subLabel: string;
+          let cls: string;
+          let valueDisplay: string;
+          if (kind === "relation") {
+            const count = t.memberCount ?? 0;
+            subLabel = count > 0
+              ? `${count} member${count === 1 ? "" : "s"}`
+              : "no members supplied";
+            cls = count > 0 ? "rg-input rg-relation rg-user" : "rg-input rg-relation rg-default";
+            valueDisplay = showValues
+              ? count > 0
+                ? `× ${count}`
+                : ""
+              : "";
+          } else if (kind === "member") {
+            // Per-member input: the "user vs default" axis matches whether
+            // the renderer plumbed values into the relation's member dicts.
+            subLabel = exposed ? "per member · user" : "per member · default";
+            cls = exposed ? "rg-input rg-member rg-user" : "rg-input rg-member rg-default";
+            valueDisplay = showValues ? formatValue(t.value) : "";
+          } else {
+            subLabel = exposed
+              ? "user input"
+              : canExpose
+                ? "default · click to expose"
+                : "default input";
+            cls = exposed ? "rg-input rg-user" : "rg-input rg-default";
+            valueDisplay = showValues ? formatValue(t.value) : "";
+          }
+
+          g.setNode(my, { width: w, height: h });
           nodes.push({
             id: my,
             x: 0,
             y: 0,
             width: w,
-            height: 60,
+            height: h,
             label: display,
             fullLabel: full,
-            subLabel: exposed ? "user input" : (canExpose ? "default · click to expose" : "default input"),
-            // Inputs always show the user/default state (it's a property of
-            // the dashboard's design, not a runtime value), but only show the
-            // current value in values mode.
-            valueDisplay: showValues ? formatValue(t.value) : "",
-            cls: exposed ? "rg-input rg-user" : "rg-input rg-default",
+            subLabel,
+            valueDisplay,
+            cls,
+            // Relations don't take a single click-to-expose — they're
+            // supplied as a list of member rows. Per-member inputs can
+            // still be exposed (the builder adds them as memberInputs on
+            // the relation), so leave the existing canExpose path open
+            // for them.
             shape: "parallelogram",
-            clickable: canExpose,
-            onClick: canExpose ? () => onExposeInput!(t.legalId) : undefined,
+            clickable: kind !== "relation" && canExpose,
+            onClick:
+              kind !== "relation" && canExpose
+                ? () => onExposeInput!(t.legalId)
+                : undefined,
           });
           return my;
         }
-        // Sub-rule reference — clickable terminal.
-        const verdictCls = showValues ? verdictClassOfTrace(t) : "rg-neutral";
+        // Sub-rule reference — clickable terminal. When the engine
+        // didn't actually evaluate this rule (other side of a
+        // short-circuited AND/OR, count_where predicate that the
+        // outer rule never reached, etc.) it carries `notEvaluated:
+        // true` — render distinctly so the user can tell "this would
+        // be checked, but wasn't this time" from "this was evaluated
+        // and undetermined".
+        const notEvaluated = !!t.notEvaluated;
+        const verdictCls = notEvaluated
+          ? "rg-not-evaluated"
+          : showValues
+            ? verdictClassOfTrace(t)
+            : "rg-neutral";
         const full = t.label || node.name;
-        const display = truncateLabel(full, 30);
-        const w = sizeForLeaf(display);
-        g.setNode(my, { width: w, height: 60 });
+        const { width: w, height: h, display } = leafDimensions(full, {
+          hasSubLabel: true,
+          hasValue: showValues && !notEvaluated,
+        });
+        g.setNode(my, { width: w, height: h });
         nodes.push({
           id: my,
           x: 0,
           y: 0,
           width: w,
-          height: 60,
+          height: h,
           label: display,
           fullLabel: full,
-          subLabel: "open ›",
-          valueDisplay: showValues ? formatValue(t.value) : "",
+          subLabel: notEvaluated ? "not evaluated · open ›" : "open ›",
+          valueDisplay: notEvaluated
+            ? ""
+            : showValues
+              ? formatValue(t.value)
+              : "",
           cls: `rg-rule ${verdictCls}`,
           shape: "rounded-tab",
           clickable: true,
@@ -479,6 +583,18 @@ function layoutAst(
         // Mono-ish width estimate: 8.5 px/char for the bold label + 28 padding,
         // capped at 240 so wide function names don't blow the layout.
         const w = Math.min(240, Math.max(150, node.name.length * 8.5 + 28));
+        // count_where / sum_where need per-member data the formula
+        // evaluator can't see (it only has top-level trace values), so
+        // they always come back null. Render an explicit "not shown"
+        // hint instead of a "—" that could be misread as "zero".
+        const isAggregator = [
+          "count_where", "sum_where", "where", "any", "all", "count",
+        ].includes(node.name);
+        const valueDisplay = showValues
+          ? value === null && isAggregator
+            ? "(per-member)"
+            : formatValue(value)
+          : "";
         g.setNode(my, { width: w, height: 60 });
         nodes.push({
           id: my,
@@ -488,7 +604,7 @@ function layoutAst(
           height: 60,
           label: node.name,
           fullLabel: node.name,
-          valueDisplay: formatValue(value),
+          valueDisplay,
           cls: `rg-op ${cls}`,
           shape: "rect",
           clickable: false,
@@ -687,11 +803,53 @@ function truncateLabel(s: string, max: number): string {
   return s.slice(0, max - 1) + "…";
 }
 
-/** Width budget for a leaf-shape node based on its (already-truncated) label. */
+/** Width budget for a leaf-shape node based on its (already-truncated) label.
+ * Retained for callers that don't need multi-line wrapping yet. */
 function sizeForLeaf(label: string): number {
   // ~7px per char with mono-ish sizing, plus padding.
   const est = label.length * 7 + 40;
   return Math.min(MAX_LEAF_WIDTH, Math.max(160, est));
+}
+
+/**
+ * Compute width, height, and (lightly capped) display label for a leaf
+ * node whose label may be long enough to wrap onto multiple lines.
+ *
+ * The caller supplies the full label plus what extras the node will
+ * render (sub-label, value display); we estimate how many lines the
+ * label will take at `MAX_LEAF_WIDTH`, then size the node tall enough
+ * to fit `label + sub + value` without clipping. Dagre uses the
+ * returned dimensions for layout, and the rendered HTML inside the
+ * SVG `<foreignObject>` is allowed to wrap freely (no CSS ellipsis on
+ * the label), so the visible text always matches the JS estimate.
+ */
+function leafDimensions(
+  label: string,
+  opts: { hasSubLabel: boolean; hasValue: boolean },
+): { width: number; height: number; display: string } {
+  const display = truncateLabel(label, MAX_LABEL_CHARS);
+  // Mono-ish char width. Tuned alongside the 11px label font in
+  // `.rg-node-label` so the JS estimate matches the rendered wrap.
+  const CHAR_WIDTH = 7;
+  const X_PADDING = 32;
+  const maxCharsPerLine = Math.max(
+    12,
+    Math.floor((MAX_LEAF_WIDTH - X_PADDING) / CHAR_WIDTH),
+  );
+  const labelLines = Math.max(1, Math.ceil(display.length / maxCharsPerLine));
+  // Pick width: if the label fits on one line, snap to its natural
+  // width so short labels don't render in oversized cards. Otherwise
+  // use the full MAX_LEAF_WIDTH so wrapping has room.
+  const naturalWidth = Math.max(160, display.length * CHAR_WIDTH + X_PADDING);
+  const width = labelLines > 1 ? MAX_LEAF_WIDTH : Math.min(MAX_LEAF_WIDTH, naturalWidth);
+  // Per-row vertical budget. The base 60 fits 1 label line + sub +
+  // value comfortably; each extra label line adds 14px.
+  const LABEL_LINE = 14;
+  const baseHeight = 60;
+  const extraForWrap = Math.max(0, labelLines - 1) * LABEL_LINE;
+  // Strip any rows that won't render so we don't reserve unused space.
+  const trim = (opts.hasSubLabel ? 0 : 0) + (opts.hasValue ? 0 : 6);
+  return { width, height: baseHeight + extraForWrap - trim, display };
 }
 
 function pointsToPath(pts: { x: number; y: number }[]): string {
