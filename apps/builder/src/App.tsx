@@ -27,7 +27,7 @@ import { validateOutput } from "./validators";
 const DRAFT_STORAGE_KEY = "dashboard-builder.draft";
 const STEP_STORAGE_KEY = "dashboard-builder.step";
 const SENSITIVITY_CACHE_PREFIX = "dashboard-builder.sensitivity";
-const SENSITIVITY_CACHE_VERSION = "v5-capped-core-baseline";
+const SENSITIVITY_CACHE_VERSION = "v7-source-file-scenarios";
 const SENSITIVITY_TIMEOUT_MS = 120000;
 
 interface SensitivityBaseline {
@@ -426,11 +426,12 @@ export function App() {
   }, [sensitivityCacheKey, draft.program, draft.outputs, sensitivityBaseline]);
 
   // Belt-and-suspenders auto-apply: if the user lands on Step III with
-  // a picked output but no inputs/relations exposed (e.g. they have a
-  // persisted draft from before the auto-apply existed, or their pick
-  // happened via a flow that bypassed OutputStep.toggle), seed the
-  // recommended defaults so the "Use the default questions?" screen
-  // actually has questions to show.
+  // a picked output but no inputs/relations exposed, seed the curated
+  // recommended defaults — but only when the user is on the predictable
+  // "well-trodden path" (their selected outputs are exactly the curated
+  // mainOutputs, e.g. eligibility + benefit amount). For any custom
+  // output pick we leave the form empty so the sensitivity-driven core
+  // questions can drive the suggested set instead.
   useEffect(() => {
     if (stepId !== "inputs") return;
     if (!draft.graph || !draft.program) return;
@@ -438,6 +439,14 @@ export function App() {
     if (draft.inputs.length > 0 || draft.relations.length > 0) return;
     const curated = curatedForDraft(draft.program);
     if (!curated?.recommendedInputs?.length) return;
+    if (!curated.mainOutputs?.length) return;
+    const curatedOutputIds = new Set(
+      curated.mainOutputs.map((output) => output.legalId),
+    );
+    const isWellTroddenPath = draft.outputs.every((output) =>
+      curatedOutputIds.has(output.legalId),
+    );
+    if (!isWellTroddenPath) return;
     setDraft(
       applyRecommendedSetup(
         draft,
