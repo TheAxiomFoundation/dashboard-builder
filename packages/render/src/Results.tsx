@@ -587,7 +587,7 @@ function RuleModal({
     ? current.evaluationRole === "relationPredicate"
       ? "evaluated per member"
       : current.notEvaluated
-      ? "not evaluated in this run"
+      ? "skipped in this run"
       : current.value === "holds"
       ? "holds"
       : current.value === "not_holds"
@@ -737,7 +737,7 @@ function RuleModal({
                   <span className="rule-modal-summary-label">Trace</span>
                   <span className="rule-modal-summary-value">
                     {current.notEvaluated
-                      ? "Not evaluated in this run"
+                      ? "Skipped branch in this run"
                       : current.value !== null && current.value !== undefined
                         ? "Static reference data"
                         : "No formula or dependencies returned"}
@@ -1162,7 +1162,7 @@ function formatValue(
 
 function formatTraceValue(node: TraceNode): string {
   if (node.evaluationRole === "relationPredicate") return "Evaluated per member";
-  if (node.notEvaluated) return "Not evaluated in this run";
+  if (node.notEvaluated) return "Skipped in this run";
   const v = node.value;
   if (v === null || v === undefined) return "—";
   if (v === "holds") return "✓ holds";

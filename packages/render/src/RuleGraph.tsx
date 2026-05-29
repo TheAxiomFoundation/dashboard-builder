@@ -432,7 +432,7 @@ function layoutAst(
           subLabel: relationPredicate
             ? "per-member predicate · open ›"
             : notEvaluated
-              ? "not evaluated · open ›"
+              ? "skipped branch · open ›"
               : "open ›",
           valueDisplay: notEvaluated
             ? ""
