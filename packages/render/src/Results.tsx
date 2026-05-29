@@ -1162,8 +1162,16 @@ function formatValue(
 
 function formatTraceValue(node: TraceNode): string {
   if (node.evaluationRole === "relationPredicate") return "Evaluated per member";
+  if (node.kind === "member" && node.memberValues?.length) {
+    return node.memberValues
+      .map((entry) => `member ${entry.index}: ${formatRawTraceValue(entry.value)}`)
+      .join("; ");
+  }
   if (node.notEvaluated) return "Skipped in this run";
-  const v = node.value;
+  return formatRawTraceValue(node.value);
+}
+
+function formatRawTraceValue(v: TraceNode["value"]): string {
   if (v === null || v === undefined) return "—";
   if (v === "holds") return "✓ holds";
   if (v === "not_holds") return "✗ does not hold";

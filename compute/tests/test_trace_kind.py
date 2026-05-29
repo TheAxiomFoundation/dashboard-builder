@@ -450,6 +450,54 @@ class StaticStubFallbackTests(unittest.TestCase):
         self.assertEqual(member_has_status["evaluationRole"], "relationPredicate")
         self.assertNotIn("notEvaluated", member_has_status)
 
+    def test_member_input_leaf_includes_per_member_values(self) -> None:
+        traces = _build_trace_tree(
+            ["a:foo#member_check"],
+            raw_trace={
+                "a:foo#member_check": {
+                    "kind": "judgment",
+                    "name": "member_check",
+                    "outcome": "holds",
+                    "dependencies": [],
+                },
+            },
+            flat_inputs={
+                "a:foo#relation.members": [
+                    {"a:foo#input.member_is_us_citizen": True},
+                    {"a:foo#input.member_is_us_citizen": False},
+                ],
+            },
+            user_keys={
+                "a:foo#relation.members",
+                "a:foo#input.member_is_us_citizen",
+            },
+            rule_rule_deps={},
+            rule_input_deps={
+                "a:foo#member_check": ["a:foo#input.member_is_us_citizen"],
+            },
+            rule_formulas={},
+            fixture_outputs={},
+            input_meta={
+                "a:foo#input.member_is_us_citizen": {
+                    "entity": "Person",
+                    "relation_legal_id": "a:foo#relation.members",
+                },
+            },
+            relation_meta={},
+            rule_meta={},
+        )
+
+        child = traces["a:foo#member_check"]["children"][0]
+        self.assertEqual(child["kind"], "member")
+        self.assertEqual(child["memberCount"], 2)
+        self.assertEqual(
+            child["memberValues"],
+            [
+                {"index": 1, "value": True, "inputSource": "user"},
+                {"index": 2, "value": False, "inputSource": "user"},
+            ],
+        )
+
     def test_bare_name_relation_dep_resolves_to_canonical_relation_leaf(self) -> None:
         traces = self._build_short_circuited()
         children = traces["a:foo#outer"]["children"]

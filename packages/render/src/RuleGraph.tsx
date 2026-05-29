@@ -363,9 +363,12 @@ function layoutAst(
           } else if (kind === "member") {
             // Per-member input: the "user vs default" axis matches whether
             // the renderer plumbed values into the relation's member dicts.
-            subLabel = exposed ? "per member · user" : "per member · default";
+            const count = t.memberValues?.length ?? t.memberCount ?? 0;
+            subLabel = `${count || "per"} member${count === 1 ? "" : "s"} · ${
+              exposed ? "user" : "default"
+            }`;
             cls = exposed ? "rg-input rg-member rg-user" : "rg-input rg-member rg-default";
-            valueDisplay = showValues ? formatValue(t.value) : "";
+            valueDisplay = showValues ? formatMemberValues(t) : "";
           } else {
             subLabel = exposed
               ? "user input"
@@ -430,7 +433,9 @@ function layoutAst(
           label: display,
           fullLabel: full,
           subLabel: relationPredicate
-            ? "per-member predicate · open ›"
+            ? `per-member predicate${
+                t.memberCount ? ` · ${t.memberCount} member${t.memberCount === 1 ? "" : "s"}` : ""
+              } · open ›`
             : notEvaluated
               ? "skipped branch · open ›"
               : "open ›",
@@ -899,6 +904,16 @@ function formatValue(v: unknown): string {
     return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
   }
   return String(v);
+}
+
+function formatMemberValues(t: TraceNode): string {
+  const values = t.memberValues ?? [];
+  if (values.length === 0) return formatValue(t.value);
+  if (values.length === 1) return `member 1: ${formatValue(values[0]!.value)}`;
+  return values
+    .slice(0, 3)
+    .map((entry) => `${entry.index}: ${formatValue(entry.value)}`)
+    .join(" · ") + (values.length > 3 ? " · …" : "");
 }
 
 function verdictClassOfTrace(t: TraceNode): string {

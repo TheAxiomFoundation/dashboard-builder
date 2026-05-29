@@ -249,7 +249,21 @@ def _input_leaf(
     if kind == "relation" and member_count is not None:
         leaf["memberCount"] = member_count
     if kind == "member" and meta.get("relation_legal_id"):
-        leaf["relationLegalId"] = meta["relation_legal_id"]
+        relation_id = meta["relation_legal_id"]
+        leaf["relationLegalId"] = relation_id
+        members = flat_inputs.get(relation_id)
+        if isinstance(members, list):
+            leaf["memberCount"] = len(members)
+            leaf["memberValues"] = [
+                {
+                    "index": index + 1,
+                    "value": _normalize_input_value(
+                        member.get(legal_id) if isinstance(member, dict) else None
+                    ),
+                    "inputSource": source_state,
+                }
+                for index, member in enumerate(members)
+            ]
     return leaf
 
 
@@ -634,7 +648,7 @@ def _build_trace_tree(
         stack: set[str],
         *,
         parent_formula: str | None = None,
-        parent_relation_predicate: bool = False,
+        parent_relation_predicate: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         if dep_id in nodes:
             return nodes[dep_id]
@@ -650,11 +664,19 @@ def _build_trace_tree(
             )
         if dep_id in rule_meta:
             meta = rule_meta[dep_id]
-            relation_predicate = _is_relation_predicate_dependency(
+            relation_predicate = _relation_predicate_context(
                 parent_formula,
                 meta.get("name"),
                 meta.get("entity"),
-            ) or (parent_relation_predicate and meta.get("entity") == "Person")
+                relation_meta,
+                flat_inputs,
+            )
+            if (
+                relation_predicate is None
+                and parent_relation_predicate is not None
+                and meta.get("entity") == "Person"
+            ):
+                relation_predicate = parent_relation_predicate
             stub = _static_rule_stub(
                 dep_id,
                 meta,
@@ -678,7 +700,15 @@ def _build_trace_tree(
     ) -> None:
         seen_child_ids: set[str] = set()
         formula = node.get("formula")
-        relation_predicate_context = node.get("evaluationRole") == "relationPredicate"
+        relation_predicate_context = (
+            {
+                key: node[key]
+                for key in ("relationName", "relationLegalId", "memberCount")
+                if key in node
+            }
+            if node.get("evaluationRole") == "relationPredicate"
+            else None
+        )
         for dep_id in runtime_deps:
             child = dependency_node(
                 dep_id,
@@ -738,28 +768,48 @@ def _build_trace_tree(
     return {q: nodes[q] for q in queried if q in nodes}
 
 
-def _is_relation_predicate_dependency(
+def _relation_predicate_context(
     parent_formula: str | None,
     dep_name: Any,
     dep_entity: Any,
-) -> bool:
+    relation_meta: dict[str, dict[str, Any]],
+    flat_inputs: dict[str, Any],
+) -> dict[str, Any] | None:
     if not isinstance(parent_formula, str) or not isinstance(dep_name, str):
-        return False
+        return None
     if dep_entity != "Person":
-        return False
-    return bool(
-        re.search(
-            rf"\b(?:count_where|sum_where)\s*\([^)]*\b{re.escape(dep_name)}\b",
-            parent_formula,
-        )
+        return None
+    match = re.search(
+        rf"\b(?:count_where|sum_where)\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*,[^)]*\b{re.escape(dep_name)}\b",
+        parent_formula,
     )
+    if not match:
+        return None
+    relation_name = match.group(1)
+    relation = next(
+        (
+            rel
+            for rel in relation_meta.values()
+            if rel.get("name") == relation_name
+        ),
+        None,
+    )
+    if not relation:
+        return {"relationName": relation_name}
+    relation_id = relation["legal_id"]
+    members = flat_inputs.get(relation_id)
+    return {
+        "relationName": relation_name,
+        "relationLegalId": relation_id,
+        "memberCount": len(members) if isinstance(members, list) else 0,
+    }
 
 
 def _static_rule_stub(
     legal_id: str,
     meta: dict[str, Any],
     *,
-    relation_predicate: bool = False,
+    relation_predicate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Trace node for a rule that the formula references but that the
     engine did not evaluate this run (short-circuited AND/OR, dead IF
@@ -787,8 +837,9 @@ def _static_rule_stub(
         "formula": formula,
         "children": [],
     }
-    if relation_predicate:
+    if relation_predicate is not None:
         node["evaluationRole"] = "relationPredicate"
+        node.update(relation_predicate)
     elif static_value is None and meta.get("kind") != "parameter":
         node["notEvaluated"] = True
     return node

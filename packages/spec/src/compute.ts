@@ -47,6 +47,12 @@ export interface TraceNode {
   memberCount?: number;
   /** For `kind: "member"` only — the relation legal id this input belongs to. */
   relationLegalId?: LegalId;
+  /** For `kind: "member"` only — one value per supplied relation member. */
+  memberValues?: Array<{
+    index: number;
+    value: number | string | boolean | null;
+    inputSource?: "user" | "default";
+  }>;
   /** Source citation (statute / regulation reference). For inputs, this is a humanized form of the home-file legal ID. */
   source?: string;
   /** For rule nodes: the latest-version formula text from the YAML — the actual condition that produced this value. */
