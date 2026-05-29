@@ -1136,10 +1136,10 @@ def _rule_metadata_for(
 
 
 def _infer_repo(program_yaml: Path) -> str:
-    """Walk up from the program YAML until a `rulespec-*` directory is hit."""
+    """Walk up from the program YAML until a rules repository directory is hit."""
     current = program_yaml.resolve()
     for parent in current.parents:
-        if parent.name.startswith("rules-"):
+        if parent.name.startswith(("rules-", "rulespec-")):
             return parent.name
     return ""
 

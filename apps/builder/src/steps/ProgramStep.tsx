@@ -234,7 +234,7 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
   },
   {
     repo: "rulespec-us-ca",
-    path: "policies/cdss/snap/fy-2026-benefit-calculation.yaml",
+    path: "programs/snap/fy-2026.yaml",
     label: "California SNAP (CalFresh)",
     labelPrefix: "snap",
     recommendedMemberCount: 1,
@@ -270,13 +270,13 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
       },
       {
         legalId:
-          "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income",
+          "us-ca:programs/snap/fy-2026#input.snap_gross_monthly_earned_income",
         label: "Monthly earned income",
         default: 0,
       },
       {
         legalId:
-          "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income",
+          "us-ca:programs/snap/fy-2026#input.snap_total_monthly_unearned_income",
         label: "Monthly unearned income",
         default: 0,
       },
@@ -288,7 +288,7 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
       },
       {
         legalId:
-          "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses",
+          "us-ca:programs/snap/fy-2026#input.household_shelter_costs_incurred",
         label: "Monthly shelter costs",
         default: 0,
       },
@@ -325,13 +325,13 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
       },
       {
         legalId:
-          "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income",
+          "us-ca:programs/snap/fy-2026#input.snap_gross_monthly_earned_income",
         label: "Monthly earned income",
         default: 0,
       },
       {
         legalId:
-          "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income",
+          "us-ca:programs/snap/fy-2026#input.snap_total_monthly_unearned_income",
         label: "Monthly unearned income",
         default: 0,
       },
@@ -343,19 +343,19 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
       },
       {
         legalId:
-          "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses",
+          "us-ca:programs/snap/fy-2026#input.household_shelter_costs_incurred",
         label: "Monthly shelter costs",
         default: 0,
       },
     ],
     mainOutputs: [
       {
-        legalId: "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_eligible",
+        legalId: "us-ca:programs/snap/fy-2026#snap_eligible",
         label: "Eligibility",
         blurb: "Whether the household appears eligible for CalFresh.",
       },
       {
-        legalId: "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit",
+        legalId: "us-ca:programs/snap/fy-2026#snap_benefit",
         label: "Benefit amount",
         blurb: "How much the household receives each month if eligible.",
       },
@@ -363,7 +363,7 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
   },
   {
     repo: "rulespec-us-ny",
-    path: "policies/otda/snap/fy-2026-benefit-calculation.yaml",
+    path: "programs/snap/fy-2026.yaml",
     label: "New York SNAP",
     labelPrefix: "snap",
     recommendedMemberCount: 1,
@@ -399,13 +399,13 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
       },
       {
         legalId:
-          "us:regulations/7-cfr/273/10#input.snap_countable_earned_income",
+          "us-ny:programs/snap/fy-2026#input.snap_gross_monthly_earned_income",
         label: "Monthly earned income",
         default: 0,
       },
       {
         legalId:
-          "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income",
+          "us-ny:programs/snap/fy-2026#input.snap_total_monthly_unearned_income",
         label: "Monthly unearned income",
         default: 0,
       },
@@ -417,7 +417,7 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
       },
       {
         legalId:
-          "us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred",
+          "us-ny:programs/snap/fy-2026#input.household_shelter_costs_incurred",
         label: "Monthly rent or mortgage",
         default: 0,
       },
@@ -454,13 +454,13 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
       },
       {
         legalId:
-          "us:regulations/7-cfr/273/10#input.snap_countable_earned_income",
+          "us-ny:programs/snap/fy-2026#input.snap_gross_monthly_earned_income",
         label: "Monthly earned income",
         default: 0,
       },
       {
         legalId:
-          "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income",
+          "us-ny:programs/snap/fy-2026#input.snap_total_monthly_unearned_income",
         label: "Monthly unearned income",
         default: 0,
       },
@@ -472,7 +472,7 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
       },
       {
         legalId:
-          "us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred",
+          "us-ny:programs/snap/fy-2026#input.household_shelter_costs_incurred",
         label: "Monthly rent or mortgage",
         default: 0,
       },
@@ -480,12 +480,12 @@ const CURATED_PROGRAMS: CuratedProgram[] = [
     mainOutputs: [
       {
         legalId:
-          "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_eligible",
+          "us-ny:programs/snap/fy-2026#snap_eligible",
         label: "Eligibility",
         blurb: "Whether the household appears eligible for SNAP in New York.",
       },
       {
-        legalId: "us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment",
+        legalId: "us-ny:programs/snap/fy-2026#snap_benefit",
         label: "Benefit amount",
         blurb: "Estimated monthly SNAP amount for the household.",
       },
