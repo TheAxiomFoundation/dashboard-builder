@@ -293,6 +293,51 @@ class StaticStubFallbackTests(unittest.TestCase):
         self.assertEqual(by_id["a:foo#asset_limit_elderly"]["value"], 4500)
         self.assertNotIn("notEvaluated", by_id["a:foo#asset_limit_elderly"])
 
+    def test_unevaluated_rule_stub_includes_its_own_dependencies(self) -> None:
+        traces = _build_trace_tree(
+            ["a:foo#outer"],
+            raw_trace={
+                "a:foo#outer": {
+                    "kind": "judgment",
+                    "name": "outer",
+                    "outcome": "holds",
+                    "dependencies": [],
+                },
+            },
+            flat_inputs={"a:foo#input.household_size": 1},
+            user_keys=set(),
+            rule_rule_deps={
+                "a:foo#outer": ["a:foo#skipped_branch"],
+            },
+            rule_input_deps={
+                "a:foo#skipped_branch": ["a:foo#input.household_size"],
+            },
+            rule_formulas={},
+            fixture_outputs={},
+            input_meta={
+                "a:foo#input.household_size": {
+                    "entity": "Household",
+                    "file_legal_id": "a:foo",
+                },
+            },
+            relation_meta={},
+            rule_meta={
+                "a:foo#skipped_branch": {
+                    "name": "skipped_branch",
+                    "kind": "derived",
+                    "dtype": "judgment",
+                    "source": "test source",
+                    "formula": "household_size > 0",
+                },
+            },
+        )
+
+        outer_children = traces["a:foo#outer"]["children"]
+        skipped = {c["legalId"]: c for c in outer_children}["a:foo#skipped_branch"]
+        self.assertTrue(skipped["notEvaluated"])
+        child_ids = {c["legalId"] for c in skipped["children"]}
+        self.assertIn("a:foo#input.household_size", child_ids)
+
     def test_bare_name_relation_dep_resolves_to_canonical_relation_leaf(self) -> None:
         traces = self._build_short_circuited()
         children = traces["a:foo#outer"]["children"]

@@ -629,12 +629,42 @@ def _build_trace_tree(
     relation_meta = relation_meta or {}
     rule_meta = rule_meta or {}
 
-    for legal_id, raw in raw_trace.items():
-        node = nodes[legal_id]
+    def dependency_node(dep_id: str, stack: set[str]) -> dict[str, Any] | None:
+        if dep_id in nodes:
+            return nodes[dep_id]
+        if dep_id in fixture_outputs:
+            return _fixture_output_node(dep_id, fixture_outputs[dep_id])
+        if dep_id in relation_meta:
+            rel = relation_meta[dep_id]
+            return _input_leaf(
+                rel["legal_id"],
+                flat_inputs,
+                user_keys,
+                input_meta,
+            )
+        if dep_id in rule_meta:
+            stub = _static_rule_stub(dep_id, rule_meta[dep_id])
+            if dep_id not in stack:
+                attach_dependencies(
+                    dep_id,
+                    stub,
+                    runtime_deps=[],
+                    stack={*stack, dep_id},
+                )
+            return stub
+        return None
+
+    def attach_dependencies(
+        legal_id: str,
+        node: dict[str, Any],
+        runtime_deps: list[str],
+        stack: set[str],
+    ) -> None:
         seen_child_ids: set[str] = set()
-        for dep_id in raw.get("dependencies") or []:
-            if dep_id in nodes:
-                node["children"].append(nodes[dep_id])
+        for dep_id in runtime_deps:
+            child = dependency_node(dep_id, stack)
+            if child is not None:
+                node["children"].append(child)
                 seen_child_ids.add(dep_id)
 
         # Engine traces only report runtime rule dependencies. Static deps
@@ -654,33 +684,28 @@ def _build_trace_tree(
         for dep_id in rule_rule_deps.get(legal_id, []):
             if dep_id in seen_child_ids:
                 continue
-            if dep_id in nodes:
-                node["children"].append(nodes[dep_id])
-                seen_child_ids.add(dep_id)
-            elif dep_id in fixture_outputs:
-                node["children"].append(_fixture_output_node(dep_id, fixture_outputs[dep_id]))
-                seen_child_ids.add(dep_id)
-            elif dep_id in relation_meta:
-                rel = relation_meta[dep_id]
-                node["children"].append(
-                    _input_leaf(
-                        rel["legal_id"],
-                        flat_inputs,
-                        user_keys,
-                        input_meta,
-                    ),
-                )
-                seen_child_ids.add(dep_id)
-            elif dep_id in rule_meta:
-                node["children"].append(_static_rule_stub(dep_id, rule_meta[dep_id]))
+            child = dependency_node(dep_id, stack)
+            if child is not None:
+                node["children"].append(child)
                 seen_child_ids.add(dep_id)
 
         # Append input deps last so they sit at the bottom of the rule's
         # children list (rules first, then their leaf inputs).
         for input_id in rule_input_deps.get(legal_id, []):
+            if input_id in seen_child_ids:
+                continue
             node["children"].append(
                 _input_leaf(input_id, flat_inputs, user_keys, input_meta),
             )
+            seen_child_ids.add(input_id)
+
+    for legal_id, raw in raw_trace.items():
+        attach_dependencies(
+            legal_id,
+            nodes[legal_id],
+            runtime_deps=raw.get("dependencies") or [],
+            stack={legal_id},
+        )
 
     return {q: nodes[q] for q in queried if q in nodes}
 
