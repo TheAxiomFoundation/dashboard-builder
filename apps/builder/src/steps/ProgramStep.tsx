@@ -651,6 +651,7 @@ export function ProgramStep({ draft, setDraft }: Props) {
       {graphError && <div className="warning">{graphError}</div>}
 
       <div className="program-list">
+        {loading && <ProgramLoading />}
         {filtered.length === 0 && !loading && (
           <div className="empty-hint">
             No matches. {query ? "Try a different search term" : "Toggle component regulations & statutes above"}.
@@ -680,6 +681,15 @@ export function ProgramStep({ draft, setDraft }: Props) {
           ← Back to current selection
         </button>
       )}
+    </div>
+  );
+}
+
+function ProgramLoading() {
+  return (
+    <div className="program-loading-card" role="status" aria-live="polite">
+      <span className="analysis-spinner" aria-hidden />
+      <span>Loading programs…</span>
     </div>
   );
 }
