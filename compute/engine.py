@@ -421,93 +421,6 @@ def _filter_user_supplied_values(
 _CO_SNAP_PROGRAM_SUFFIX = "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
 
 
-def _amount_from_flat(flat: dict[str, Any], legal_id: str) -> float:
-    raw = flat.get(legal_id, 0)
-    if isinstance(raw, bool):
-        return 1.0 if raw else 0.0
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _flag_from_flat(flat: dict[str, Any], legal_id: str) -> bool:
-    raw = flat.get(legal_id, False)
-    if isinstance(raw, str):
-        return raw.strip().lower() in {"true", "1", "yes", "y"}
-    return bool(raw)
-
-
-def _scalar_number(value: float) -> int | float:
-    return int(value) if value.is_integer() else value
-
-
-def _snap_income_alias_defaults(
-    earned: float | int | None,
-    unearned: float | int | None,
-    gross: float | int | None = None,
-) -> dict[str, Any]:
-    earned_value = _scalar_number(float(earned or 0))
-    unearned_value = _scalar_number(float(unearned or 0))
-    gross_value = _scalar_number(
-        float(gross) if gross is not None else float(earned or 0) + float(unearned or 0)
-    )
-    return {
-        "snap_countable_earned_income": earned_value,
-        "snap_countable_unearned_income": unearned_value,
-        "snap_gross_monthly_earned_income": earned_value,
-        "snap_total_monthly_unearned_income": unearned_value,
-        "snap_gross_monthly_income": gross_value,
-        "snap_monthly_household_income": gross_value,
-        "us:statutes/7/2014/e/2#input.snap_countable_earned_income": earned_value,
-        "us:regulations/7-cfr/273/10#input.snap_countable_earned_income": earned_value,
-        "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income": earned_value,
-        "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income": unearned_value,
-        "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income": unearned_value,
-        "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income": gross_value,
-        "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income": gross_value,
-        "us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income": earned_value,
-        "us-co:regulations/10-ccr-2506-1/4.404#snap_countable_unearned_income": unearned_value,
-        "us:regulations/7-cfr/273/10#snap_gross_monthly_income": gross_value,
-        "us:regulations/7-cfr/273/10#snap_monthly_household_income": gross_value,
-    }
-
-
-def _direct_snap_income_defaults(flat: dict[str, Any]) -> dict[str, Any]:
-    def first_amount(names: tuple[str, ...]) -> tuple[bool, float]:
-        for name in names:
-            if name in flat:
-                return True, _amount_from_flat(flat, name)
-        return False, 0.0
-
-    earned_present, earned = first_amount((
-        "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income",
-        "us:regulations/7-cfr/273/10#input.snap_countable_earned_income",
-        "us:statutes/7/2014/e/2#input.snap_countable_earned_income",
-        "snap_gross_monthly_earned_income",
-        "snap_countable_earned_income",
-    ))
-    unearned_present, unearned = first_amount((
-        "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income",
-        "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income",
-        "snap_total_monthly_unearned_income",
-        "snap_countable_unearned_income",
-    ))
-    gross_present, gross = first_amount((
-        "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income",
-        "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income",
-        "snap_gross_monthly_income",
-        "snap_monthly_household_income",
-    ))
-    if not (earned_present or unearned_present or gross_present):
-        return {}
-    return _snap_income_alias_defaults(
-        earned if earned_present else 0,
-        unearned if unearned_present else 0,
-        gross if gross_present else None,
-    )
-
-
 def _relation_size_defaults(flat: dict[str, Any]) -> dict[str, Any]:
     for legal_id, value in flat.items():
         if is_relation_id(legal_id) and isinstance(value, list):
@@ -530,21 +443,34 @@ def _dynamic_input_defaults(program_yaml: Path, flat: dict[str, Any]) -> dict[st
     the fixture baseline, so changing employee wages affects deductions but
     leaves monthly/gross income stuck at the original fixture value.
     """
-    defaults = _direct_snap_income_defaults(flat)
-
     program_posix = program_yaml.as_posix()
     if not program_posix.endswith(_CO_SNAP_PROGRAM_SUFFIX):
-        return defaults
+        return {}
 
     co_403 = "us-co:regulations/10-ccr-2506-1/4.403#input."
     co_403_2 = "us-co:regulations/10-ccr-2506-1/4.403.2#input."
     co_403_11 = "us-co:regulations/10-ccr-2506-1/4.403.11#input."
     co_404 = "us-co:regulations/10-ccr-2506-1/4.404#input."
 
+    def amount(legal_id: str) -> float:
+        raw = flat.get(legal_id, 0)
+        if isinstance(raw, bool):
+            return 1.0 if raw else 0.0
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def flag(legal_id: str) -> bool:
+        raw = flat.get(legal_id, False)
+        if isinstance(raw, str):
+            return raw.strip().lower() in {"true", "1", "yes", "y"}
+        return bool(raw)
+
     wage_income = 0.0
-    if not _flag_from_flat(flat, f"{co_403}higher_education_state_work_study_or_work_requirement_fellowship_income"):
+    if not flag(f"{co_403}higher_education_state_work_study_or_work_requirement_fellowship_income"):
         wage_income = sum(
-            _amount_from_flat(flat, f"{co_403}{name}")
+            amount(f"{co_403}{name}")
             for name in (
                 "employee_wages_received",
                 "garnished_or_diverted_wages_for_household_expenses",
@@ -555,78 +481,106 @@ def _dynamic_input_defaults(program_yaml: Path, flat: dict[str, Any]) -> dict[st
         )
 
     sick_vacation_bonus = (
-        _amount_from_flat(flat, f"{co_403}sick_vacation_or_bonus_pay_received")
-        if _flag_from_flat(flat, f"{co_403}person_still_employed_when_sick_vacation_or_bonus_pay_received")
+        amount(f"{co_403}sick_vacation_or_bonus_pay_received")
+        if flag(f"{co_403}person_still_employed_when_sick_vacation_or_bonus_pay_received")
         else 0.0
     )
-    rental_gross = _amount_from_flat(flat, f"{co_403}rental_property_gross_income")
-    rental_costs = _amount_from_flat(flat, f"{co_403}rental_property_business_costs")
-    rental_is_earned = _amount_from_flat(flat, f"{co_403}average_rental_property_management_hours_per_week") >= 20
+    rental_gross = amount(f"{co_403}rental_property_gross_income")
+    rental_costs = amount(f"{co_403}rental_property_business_costs")
+    rental_is_earned = amount(f"{co_403}average_rental_property_management_hours_per_week") >= 20
     earned_rental = max(0.0, rental_gross - rental_costs) if rental_is_earned else 0.0
     boarder_income = max(
         0.0,
-        _amount_from_flat(flat, f"{co_403_2}boarder_payments_for_room_meals_and_shelter_contributions")
-        - _amount_from_flat(flat, f"{co_403_2}actual_documented_boarder_room_and_meal_costs"),
+        amount(f"{co_403_2}boarder_payments_for_room_meals_and_shelter_contributions")
+        - amount(f"{co_403_2}actual_documented_boarder_room_and_meal_costs"),
     )
     other_self_employment = max(
         0.0,
-        _amount_from_flat(flat, f"{co_403_11}self_employment_gross_income_for_period")
-        + _amount_from_flat(flat, f"{co_403_11}self_employment_capital_gains_for_period")
-        - _amount_from_flat(flat, f"{co_403_11}allowable_self_employment_business_costs_for_period"),
+        amount(f"{co_403_11}self_employment_gross_income_for_period")
+        + amount(f"{co_403_11}self_employment_capital_gains_for_period")
+        - amount(f"{co_403_11}allowable_self_employment_business_costs_for_period"),
     )
     earned = (
         wage_income
-        + _amount_from_flat(flat, f"{co_403}household_vista_or_title_i_domestic_volunteer_earned_income")
-        + _amount_from_flat(flat, f"{co_403}household_training_allowance_earned_income")
-        + _amount_from_flat(flat, f"{co_403}household_wioa_ojt_earned_income")
+        + amount(f"{co_403}household_vista_or_title_i_domestic_volunteer_earned_income")
+        + amount(f"{co_403}household_training_allowance_earned_income")
+        + amount(f"{co_403}household_wioa_ojt_earned_income")
         + sick_vacation_bonus
         + earned_rental
-        + _amount_from_flat(flat, f"{co_403}household_llc_s_corporation_owner_earned_income")
-        + (0.0 if _flag_from_flat(flat, f"{co_403_2}boarder_income_is_foster_care_payment") else boarder_income)
+        + amount(f"{co_403}household_llc_s_corporation_owner_earned_income")
+        + (0.0 if flag(f"{co_403_2}boarder_income_is_foster_care_payment") else boarder_income)
         + other_self_employment
-        + _amount_from_flat(flat, f"{co_403}capital_goods_services_or_property_sale_proceeds_connected_to_self_employment")
+        + amount(f"{co_403}capital_goods_services_or_property_sale_proceeds_connected_to_self_employment")
     )
 
     unearned_rental = max(0.0, rental_gross - rental_costs) if not rental_is_earned else 0.0
     terminated_installment = (
-        _amount_from_flat(flat, f"{co_404}vacation_sick_or_bonus_pay")
+        amount(f"{co_404}vacation_sick_or_bonus_pay")
         if (
-            _flag_from_flat(flat, f"{co_404}vacation_sick_or_bonus_pay_after_terminated_employment")
-            and _flag_from_flat(flat, f"{co_404}vacation_sick_or_bonus_pay_received_in_installments")
+            flag(f"{co_404}vacation_sick_or_bonus_pay_after_terminated_employment")
+            and flag(f"{co_404}vacation_sick_or_bonus_pay_received_in_installments")
         )
         else 0.0
     )
-    nonprofit_gift = max(0.0, _amount_from_flat(flat, f"{co_404}nonprofit_gifts_received_in_fiscal_quarter") - 300)
+    nonprofit_gift = max(0.0, amount(f"{co_404}nonprofit_gifts_received_in_fiscal_quarter") - 300)
     other_gift = (
-        _amount_from_flat(flat, f"{co_404}gifts_from_other_sources")
-        if _flag_from_flat(flat, f"{co_404}gifts_from_other_sources_can_be_anticipated")
+        amount(f"{co_404}gifts_from_other_sources")
+        if flag(f"{co_404}gifts_from_other_sources_can_be_anticipated")
         else 0.0
     )
     lottery = (
-        _amount_from_flat(flat, f"{co_404}household_member_allocated_lottery_or_gambling_winnings")
-        if _flag_from_flat(flat, f"{co_404}substantial_lottery_or_gambling_winnings_received")
+        amount(f"{co_404}household_member_allocated_lottery_or_gambling_winnings")
+        if flag(f"{co_404}substantial_lottery_or_gambling_winnings_received")
         else 0.0
     )
     sponsor = (
-        _amount_from_flat(flat, f"{co_404}sponsor_income_deemed_to_household")
-        if _flag_from_flat(flat, f"{co_404}sponsored_noncitizen_household")
+        amount(f"{co_404}sponsor_income_deemed_to_household")
+        if flag(f"{co_404}sponsored_noncitizen_household")
         else 0.0
     )
     unearned = (
-        _amount_from_flat(flat, f"{co_404}assistance_payments")
-        + _amount_from_flat(flat, f"{co_404}retirement_disability_payments")
-        + _amount_from_flat(flat, f"{co_404}direct_support_and_alimony_payments")
+        amount(f"{co_404}assistance_payments")
+        + amount(f"{co_404}retirement_disability_payments")
+        + amount(f"{co_404}direct_support_and_alimony_payments")
         + unearned_rental
         + sponsor
         + terminated_installment
         + nonprofit_gift
         + other_gift
-        + _amount_from_flat(flat, f"{co_404}other_gain_or_benefit_payments")
-        + _amount_from_flat(flat, f"{co_404}trust_fund_withdrawals")
-        + _amount_from_flat(flat, f"{co_404}available_trust_dividends")
+        + amount(f"{co_404}other_gain_or_benefit_payments")
+        + amount(f"{co_404}trust_fund_withdrawals")
+        + amount(f"{co_404}available_trust_dividends")
         + lottery
     )
-    return {**defaults, **_snap_income_alias_defaults(earned, unearned)}
+    gross = earned + unearned
+
+    def scalar(value: float) -> int | float:
+        return int(value) if value.is_integer() else value
+
+    earned_value = scalar(earned)
+    unearned_value = scalar(unearned)
+    gross_value = scalar(gross)
+
+    defaults = {
+        "snap_countable_earned_income": earned_value,
+        "snap_countable_unearned_income": unearned_value,
+        "snap_gross_monthly_earned_income": earned_value,
+        "snap_total_monthly_unearned_income": unearned_value,
+        "snap_gross_monthly_income": gross_value,
+        "snap_monthly_household_income": gross_value,
+        "us:statutes/7/2014/e/2#input.snap_countable_earned_income": earned_value,
+        "us:regulations/7-cfr/273/10#input.snap_countable_earned_income": earned_value,
+        "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income": earned_value,
+        "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income": unearned_value,
+        "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income": unearned_value,
+        "us:regulations/7-cfr/273/9#input.snap_gross_monthly_income": gross_value,
+        "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income": gross_value,
+        "us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income": earned_value,
+        "us-co:regulations/10-ccr-2506-1/4.404#snap_countable_unearned_income": unearned_value,
+        "us:regulations/7-cfr/273/10#snap_gross_monthly_income": gross_value,
+        "us:regulations/7-cfr/273/10#snap_monthly_household_income": gross_value,
+    }
+    return defaults
 
 
 def _fixture_outputs_for_trace(

@@ -229,29 +229,6 @@ class ColoradoSnapIncomeBridgeTest(unittest.TestCase):
 
         self.assertEqual(defaults, {})
 
-    def test_direct_snap_income_fields_drive_imported_income_aliases(self) -> None:
-        defaults = _dynamic_input_defaults(
-            Path("/tmp/rules-us-ny/policies/otda/snap/fy-2026-benefit-calculation.yaml"),
-            {
-                "us:regulations/7-cfr/273/10#input.snap_countable_earned_income": 10000,
-                "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income": 250,
-            },
-        )
-
-        self.assertEqual(defaults["snap_gross_monthly_income"], 10250)
-        self.assertEqual(
-            defaults["us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income"],
-            10000,
-        )
-        self.assertEqual(
-            defaults["us:regulations/7-cfr/273/9#input.snap_gross_monthly_income"],
-            10250,
-        )
-        self.assertEqual(
-            defaults["us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income"],
-            250,
-        )
-
 
 class RealSnapEngineSmokeTest(unittest.TestCase):
     """Guard the configured real engine against rule-pack schema drift.
