@@ -584,7 +584,9 @@ function RuleModal({
   // so the text label should be plain words — otherwise the pill ends up
   // with double check marks ("✓ ✓ holds").
   const verdictLabel = isJudgment
-    ? current.notEvaluated
+    ? current.evaluationRole === "relationPredicate"
+      ? "evaluated per member"
+      : current.notEvaluated
       ? "not evaluated in this run"
       : current.value === "holds"
       ? "holds"
@@ -1159,6 +1161,7 @@ function formatValue(
 }
 
 function formatTraceValue(node: TraceNode): string {
+  if (node.evaluationRole === "relationPredicate") return "Evaluated per member";
   if (node.notEvaluated) return "Not evaluated in this run";
   const v = node.value;
   if (v === null || v === undefined) return "—";

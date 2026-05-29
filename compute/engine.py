@@ -629,7 +629,12 @@ def _build_trace_tree(
     relation_meta = relation_meta or {}
     rule_meta = rule_meta or {}
 
-    def dependency_node(dep_id: str, stack: set[str]) -> dict[str, Any] | None:
+    def dependency_node(
+        dep_id: str,
+        stack: set[str],
+        *,
+        parent_formula: str | None = None,
+    ) -> dict[str, Any] | None:
         if dep_id in nodes:
             return nodes[dep_id]
         if dep_id in fixture_outputs:
@@ -643,7 +648,17 @@ def _build_trace_tree(
                 input_meta,
             )
         if dep_id in rule_meta:
-            stub = _static_rule_stub(dep_id, rule_meta[dep_id])
+            meta = rule_meta[dep_id]
+            relation_predicate = _is_relation_predicate_dependency(
+                parent_formula,
+                meta.get("name"),
+                meta.get("entity"),
+            )
+            stub = _static_rule_stub(
+                dep_id,
+                meta,
+                relation_predicate=relation_predicate,
+            )
             if dep_id not in stack:
                 attach_dependencies(
                     dep_id,
@@ -661,8 +676,9 @@ def _build_trace_tree(
         stack: set[str],
     ) -> None:
         seen_child_ids: set[str] = set()
+        formula = node.get("formula")
         for dep_id in runtime_deps:
-            child = dependency_node(dep_id, stack)
+            child = dependency_node(dep_id, stack, parent_formula=formula)
             if child is not None:
                 node["children"].append(child)
                 seen_child_ids.add(dep_id)
@@ -684,7 +700,7 @@ def _build_trace_tree(
         for dep_id in rule_rule_deps.get(legal_id, []):
             if dep_id in seen_child_ids:
                 continue
-            child = dependency_node(dep_id, stack)
+            child = dependency_node(dep_id, stack, parent_formula=formula)
             if child is not None:
                 node["children"].append(child)
                 seen_child_ids.add(dep_id)
@@ -710,7 +726,29 @@ def _build_trace_tree(
     return {q: nodes[q] for q in queried if q in nodes}
 
 
-def _static_rule_stub(legal_id: str, meta: dict[str, Any]) -> dict[str, Any]:
+def _is_relation_predicate_dependency(
+    parent_formula: str | None,
+    dep_name: Any,
+    dep_entity: Any,
+) -> bool:
+    if not isinstance(parent_formula, str) or not isinstance(dep_name, str):
+        return False
+    if dep_entity != "Person":
+        return False
+    return bool(
+        re.search(
+            rf"\b(?:count_where|sum_where)\s*\([^)]*\b{re.escape(dep_name)}\b",
+            parent_formula,
+        )
+    )
+
+
+def _static_rule_stub(
+    legal_id: str,
+    meta: dict[str, Any],
+    *,
+    relation_predicate: bool = False,
+) -> dict[str, Any]:
     """Trace node for a rule that the formula references but that the
     engine did not evaluate this run (short-circuited AND/OR, dead IF
     branch, count_where predicate, etc.).
@@ -737,7 +775,9 @@ def _static_rule_stub(legal_id: str, meta: dict[str, Any]) -> dict[str, Any]:
         "formula": formula,
         "children": [],
     }
-    if static_value is None and meta.get("kind") != "parameter":
+    if relation_predicate:
+        node["evaluationRole"] = "relationPredicate"
+    elif static_value is None and meta.get("kind") != "parameter":
         node["notEvaluated"] = True
     return node
 
@@ -1155,6 +1195,7 @@ def _rule_metadata_for(
         rule_meta[rule.legal_id] = {
             "name": rule.name,
             "kind": rule.kind,
+            "entity": rule.entity,
             "dtype": (rule.dtype or "").lower() or "decimal",
             "source": rule.source,
             "formula": rule.formula,

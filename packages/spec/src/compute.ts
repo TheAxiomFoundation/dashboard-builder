@@ -63,6 +63,11 @@ export interface TraceNode {
    * the node as muted/not-evaluated rather than as a missing dependency.
    */
   notEvaluated?: boolean;
+  /**
+   * Extra context for trace nodes that do not have a single scalar runtime
+   * value but are still meaningful in the formula graph.
+   */
+  evaluationRole?: "relationPredicate";
   /** Children = sub-rules / inputs that fed into this one. */
   children?: TraceNode[];
 }

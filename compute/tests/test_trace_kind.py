@@ -338,6 +338,55 @@ class StaticStubFallbackTests(unittest.TestCase):
         child_ids = {c["legalId"] for c in skipped["children"]}
         self.assertIn("a:foo#input.household_size", child_ids)
 
+    def test_count_where_person_predicate_is_not_labeled_unevaluated(self) -> None:
+        traces = _build_trace_tree(
+            ["a:foo#outer"],
+            raw_trace={
+                "a:foo#outer": {
+                    "kind": "judgment",
+                    "name": "outer",
+                    "outcome": "holds",
+                    "dependencies": ["a:foo#relation.members"],
+                },
+            },
+            flat_inputs={"a:foo#relation.members": [{}]},
+            user_keys={"a:foo#relation.members"},
+            rule_rule_deps={
+                "a:foo#outer": [
+                    "a:foo#relation.members",
+                    "a:foo#member_eligible",
+                ],
+            },
+            rule_input_deps={},
+            rule_formulas={
+                "a:foo#outer": "count_where(members, member_eligible) > 0",
+            },
+            fixture_outputs={},
+            input_meta={},
+            relation_meta={
+                "a:foo#relation.members": {
+                    "legal_id": "a:foo#relation.members",
+                    "name": "members",
+                    "file_legal_id": "a:foo",
+                },
+            },
+            rule_meta={
+                "a:foo#member_eligible": {
+                    "name": "member_eligible",
+                    "kind": "derived",
+                    "entity": "Person",
+                    "dtype": "judgment",
+                    "source": "test source",
+                    "formula": "member_is_eligible",
+                },
+            },
+        )
+
+        children = traces["a:foo#outer"]["children"]
+        predicate = {c["legalId"]: c for c in children}["a:foo#member_eligible"]
+        self.assertEqual(predicate["evaluationRole"], "relationPredicate")
+        self.assertNotIn("notEvaluated", predicate)
+
     def test_bare_name_relation_dep_resolves_to_canonical_relation_leaf(self) -> None:
         traces = self._build_short_circuited()
         children = traces["a:foo#outer"]["children"]
