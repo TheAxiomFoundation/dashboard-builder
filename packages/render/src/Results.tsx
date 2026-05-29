@@ -734,7 +734,11 @@ function RuleModal({
                 <div className="rule-modal-summary-row">
                   <span className="rule-modal-summary-label">Trace</span>
                   <span className="rule-modal-summary-value">
-                    No formula or dependencies returned
+                    {current.notEvaluated
+                      ? "Not evaluated in this run"
+                      : current.value !== null && current.value !== undefined
+                        ? "Static reference data"
+                        : "No formula or dependencies returned"}
                   </span>
                 </div>
               </div>

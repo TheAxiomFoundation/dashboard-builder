@@ -725,6 +725,9 @@ def _static_rule_stub(legal_id: str, meta: dict[str, Any]) -> dict[str, Any]:
         if meta.get("kind") == "parameter"
         else None
     )
+    if static_value is None and meta.get("kind") == "parameter" and meta.get("values") is not None:
+        indexed_by = meta.get("indexed_by")
+        static_value = f"Reference table{f' by {indexed_by}' if indexed_by else ''}"
     node = {
         "legalId": legal_id,
         "label": meta.get("name") or legal_id.split("#")[-1],
@@ -1155,6 +1158,8 @@ def _rule_metadata_for(
             "dtype": (rule.dtype or "").lower() or "decimal",
             "source": rule.source,
             "formula": rule.formula,
+            "indexed_by": rule.indexed_by,
+            "values": rule.parameter_values,
         }
     for inp in graph.inputs.values():
         input_meta[inp.legal_id] = {

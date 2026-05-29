@@ -70,6 +70,8 @@ class RuleNode:
     unit: str | None = None
     source: str | None = None
     formula: str = ""
+    indexed_by: str | None = None
+    parameter_values: Any = None
     # Resolved legal IDs of rules/inputs/relations this rule depends on.
     rule_deps: list[str] = field(default_factory=list)
     input_deps: list[str] = field(default_factory=list)
@@ -195,9 +197,12 @@ def _add_file_to_index(
         if not name:
             continue
         formula = ""
+        parameter_values = None
         versions = rule.get("versions")
         if isinstance(versions, list) and versions:
-            formula = versions[-1].get("formula", "") or ""
+            latest = versions[-1]
+            formula = latest.get("formula", "") or ""
+            parameter_values = latest.get("values")
         node = RuleNode(
             legal_id=f"{file_id}#{name}",
             name=name,
@@ -209,6 +214,8 @@ def _add_file_to_index(
             unit=rule.get("unit"),
             source=rule.get("source"),
             formula=formula,
+            indexed_by=rule.get("indexed_by"),
+            parameter_values=parameter_values,
         )
         rules[node.legal_id] = node
         rule_local_index.setdefault(name, []).append(node)
