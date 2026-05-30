@@ -78,7 +78,8 @@ export function axiomAppUrl(fileLegalId: string): string | null {
   const parts = body.split("/").filter(Boolean);
   if (parts.length < 1) return null;
   const [kind, ...rest] = parts;
-  const singular = KIND_SINGULAR[kind!] ?? kind!;
+  const singular = KIND_SINGULAR[kind!];
+  if (!singular) return null;
   const path = [jurisdiction, singular, ...rest].join("/");
   return `https://app.axiom-foundation.org/${path}`;
 }
