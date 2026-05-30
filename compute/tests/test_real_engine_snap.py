@@ -355,7 +355,7 @@ class RealSnapEngineSmokeTest(unittest.TestCase):
             output.get("legalId"): output.get("value")
             for output in payload.get("outputs", [])
         }
-        self.assertIn("neutral defaults", " ".join(payload.get("warnings", [])))
+        self.assertEqual(payload.get("warnings", []), [])
         self.assertEqual(outputs.get(SNAP_ELIGIBLE), "not_holds")
         self.assertEqual(outputs.get(SNAP_ALLOTMENT), 0)
 

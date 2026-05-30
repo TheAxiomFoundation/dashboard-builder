@@ -1345,6 +1345,12 @@ def _unique_candidates(candidates: list[str], exclude: set[str] | None = None) -
 
 
 def _rules_workspace_root(program_yaml: Path) -> Path:
+    env_root = os.environ.get("AXIOM_RULESPEC_ROOT")
+    if env_root:
+        root = Path(env_root).expanduser().resolve()
+        if any(root.glob("rulespec-*")) or any(root.glob("rules-*")):
+            return root
+
     for parent in program_yaml.resolve().parents:
         if parent.name.startswith(("rules-", "rulespec-")):
             if "artifacts" in parent.parts and "composed" in parent.parts:
