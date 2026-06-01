@@ -4,9 +4,9 @@
 .shell {
   position: relative;
   z-index: 1;
-  max-width: 1080px;
+  max-width: min(1500px, calc(100vw - 48px));
   margin: 0 auto;
-  padding: 56px 32px 80px;
+  padding: 40px 24px 80px;
 }
 
 .shell-header {

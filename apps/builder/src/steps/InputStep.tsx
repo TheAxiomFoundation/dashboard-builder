@@ -115,21 +115,58 @@ function QuestionDepthStep({
   onOpenAdvanced: () => void;
 }) {
   const curated = curatedForDraft(draft.program);
+  const [fastDeps, setFastDeps] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!draft.program || draft.outputs.length === 0) {
+      setFastDeps({});
+      return;
+    }
+    let cancelled = false;
+    fetchTransitive(
+      draft.program.repo,
+      draft.program.path,
+      draft.outputs.map((output) => output.legalId),
+    )
+      .then((res) => {
+        if (!cancelled) setFastDeps(res.inputs);
+      })
+      .catch(() => {
+        if (!cancelled) setFastDeps({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.program, draft.outputs]);
+
   const analyzedCoreQuestions = useMemo(() => {
     return selectCoreQuestions(draft, sensitivity, CORE_QUESTION_LIMIT);
   }, [draft.graph, sensitivity]);
+  const fastCoreQuestions = useMemo(() => {
+    return selectFastCoreQuestions(draft, fastDeps, CORE_QUESTION_LIMIT);
+  }, [draft.graph, draft.program, draft.outputs, fastDeps]);
   const preloadedCoreQuestions = useMemo(
     () => selectedQuestionsFromDraft(draft, CORE_QUESTION_LIMIT),
     [draft.graph, draft.inputs, draft.relations],
   );
-  const coreQuestions =
-    analyzedCoreQuestions.length > 0
-      ? analyzedCoreQuestions
-      : preloadedCoreQuestions;
+  const coreQuestions = uniqueInputs([
+    ...analyzedCoreQuestions,
+    ...fastCoreQuestions,
+    ...preloadedCoreQuestions,
+  ]).slice(0, CORE_QUESTION_LIMIT);
   const coreQuestionCount = coreQuestions.length;
   const hasPreloadedQuestions = preloadedCoreQuestions.length > 0;
+  const hasFastQuestions = fastCoreQuestions.length > 0;
   const showBlockingAnalysis =
-    sensitivityStatus === "loading" && !hasPreloadedQuestions;
+    sensitivityStatus === "loading" && !hasPreloadedQuestions && !hasFastQuestions;
+  const recommendationMode =
+    analyzedCoreQuestions.length > 0 && fastCoreQuestions.length > 0
+      ? "engine-and-graph"
+      : analyzedCoreQuestions.length > 0
+      ? "engine-tested"
+      : hasFastQuestions
+        ? "fast"
+        : "pending";
 
   function applyCoreQuestions() {
     if (!draft.graph || coreQuestions.length === 0) return;
@@ -164,10 +201,16 @@ function QuestionDepthStep({
         </div>
       )}
 
-      {sensitivityStatus === "error" && (
+      {sensitivityStatus === "error" && !hasFastQuestions && (
         <div className="input-guide-note">
           The computation-tree analysis did not finish. Use custom questions
           while we inspect the engine result.
+        </div>
+      )}
+      {sensitivityStatus === "error" && hasFastQuestions && (
+        <div className="input-guide-note">
+          Engine testing did not finish, so we are showing fast recommendations
+          from the dependency graph.
         </div>
       )}
 
@@ -180,8 +223,11 @@ function QuestionDepthStep({
         >
           <span className="output-headline-card-title">Core questions</span>
           <span className="output-headline-card-source">
-            Use the questions confirmed to change the selected result in engine
-            testing.
+            {recommendationMode === "engine-tested"
+              ? "Use the questions confirmed to change the selected result in engine testing."
+              : recommendationMode === "engine-and-graph"
+                ? "Use engine-tested questions, filled out with nearby graph dependencies."
+              : "Use the closest questions from the selected results' dependency graph."}
           </span>
           <span className="output-headline-card-state">
             {showBlockingAnalysis
@@ -841,7 +887,7 @@ function AdvancedInputPicker({
 
   const hasPicks = exposedCount > 0;
   return (
-    <div className="step-body step-narrow">
+    <div className="step-body step-narrow advanced-input-picker">
       {hasPicks && (
         <section className="picked-strip" aria-label="Picked questions">
           <div className="picked-strip-head">
@@ -921,15 +967,21 @@ function AdvancedInputPicker({
       {/* Hide the search bar entirely once every reachable input is
           exposed — nothing left to find. */}
       {availableInputCatalog.length + availableRelationCatalog.length > 0 && (
-        <div className="inline-search">
-          <input
-            type="search"
-            className="inline-search-input"
-            placeholder={`Search ${totalRelevant} available questions…`}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
+        <section className="additional-inputs-panel">
+          <header className="additional-inputs-head">
+            <span className="additional-inputs-eyebrow">Additional inputs</span>
+            <h3>Available questions</h3>
+          </header>
+          <div className="inline-search">
+            <input
+              type="search"
+              className="inline-search-input"
+              placeholder={`Search ${totalRelevant} available questions…`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        </section>
       )}
 
       {q ? (
@@ -1570,6 +1622,77 @@ function selectCoreQuestions(
       return a.name.localeCompare(b.name);
     })
     .slice(0, limit);
+}
+
+function selectFastCoreQuestions(
+  draft: Draft,
+  inputDeps: Record<string, number>,
+  limit: number,
+): InputGraphNode[] {
+  if (!draft.graph) return [];
+  const curated = curatedForDraft(draft.program);
+  const curatedOrder = new Map(
+    (curated?.recommendedInputs ?? []).map((rec, index) => [
+      rec.legalId,
+      index,
+    ] as const),
+  );
+  const defaultOrder = new Map(
+    (curated?.inputDefaults ?? []).map((rec, index) => [
+      rec.legalId,
+      index,
+    ] as const),
+  );
+  const priorityIds = new Set([
+    ...(curated?.recommendedInputs ?? []).map((rec) => rec.legalId),
+    ...(curated?.inputDefaults ?? []).map((rec) => rec.legalId),
+  ]);
+
+  const graphInputs = draft.graph.inputs;
+  const dependencyCandidates = graphInputs.filter((input) =>
+    Number.isFinite(inputDeps[input.legalId]),
+  );
+  const curatedCandidates = graphInputs.filter((input) =>
+    priorityIds.has(input.legalId),
+  );
+  const candidates = uniqueInputs(
+    dependencyCandidates.length > 0
+      ? [...curatedCandidates, ...dependencyCandidates]
+      : curatedCandidates,
+  );
+
+  return candidates
+    .sort((a, b) => {
+      const curatedA = curatedOrder.get(a.legalId) ?? Number.POSITIVE_INFINITY;
+      const curatedB = curatedOrder.get(b.legalId) ?? Number.POSITIVE_INFINITY;
+      if (curatedA !== curatedB) return curatedA - curatedB;
+
+      const defaultA = defaultOrder.get(a.legalId) ?? Number.POSITIVE_INFINITY;
+      const defaultB = defaultOrder.get(b.legalId) ?? Number.POSITIVE_INFINITY;
+      if (defaultA !== defaultB) return defaultA - defaultB;
+
+      const depthA = inputDeps[a.legalId] ?? Number.POSITIVE_INFINITY;
+      const depthB = inputDeps[b.legalId] ?? Number.POSITIVE_INFINITY;
+      if (depthA !== depthB) return depthA - depthB;
+
+      const sectionA = sectionOrder(sectionForInput(a.name));
+      const sectionB = sectionOrder(sectionForInput(b.name));
+      if (sectionA !== sectionB) return sectionA - sectionB;
+
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, limit);
+}
+
+function uniqueInputs(inputs: InputGraphNode[]): InputGraphNode[] {
+  const seen = new Set<string>();
+  const out: InputGraphNode[] = [];
+  for (const input of inputs) {
+    if (seen.has(input.legalId)) continue;
+    seen.add(input.legalId);
+    out.push(input);
+  }
+  return out;
 }
 
 function selectedQuestionsFromDraft(draft: Draft, limit: number): InputGraphNode[] {

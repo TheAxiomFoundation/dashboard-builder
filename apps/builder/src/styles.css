@@ -350,14 +350,14 @@ body, html, #root {
 }
 
 .wizard-pane {
-  padding: 32px 56px 56px;
+  padding: 32px 40px 56px;
   display: flex;
   flex-direction: column;
   gap: 24px;
   /* Cap the wizard width on very wide screens so content doesn't sprawl
      into a sea of whitespace. Step I overrides this with its narrower
      760px max-width via .wizard-centered. */
-  max-width: 1280px;
+  max-width: min(1560px, calc(100vw - 32px));
   width: 100%;
   margin: 0 auto;
   /* No max-height / overflow here — the page is the single scroll
@@ -491,7 +491,7 @@ body, html, #root {
   border: 1px solid var(--color-rule);
   border-radius: 4px;
   background: var(--color-paper-elevated);
-  padding: 32px;
+  padding: 24px;
 }
 
 /* Demo / Graph segmented toggle in Step IV. Sits centered inside the
@@ -2262,6 +2262,91 @@ body, html, #root {
   width: 100%;
   margin-left: auto;
   margin-right: auto;
+}
+
+.step-body.step-narrow.advanced-input-picker {
+  max-width: 960px;
+}
+
+.additional-inputs-panel {
+  margin: 18px 0 10px;
+  padding: 16px;
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  background: var(--color-paper-elevated);
+}
+
+.additional-inputs-head {
+  margin-bottom: 12px;
+}
+
+.additional-inputs-eyebrow {
+  display: block;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin-bottom: 2px;
+}
+
+.additional-inputs-head h3 {
+  margin: 0;
+  font-family: var(--f-display);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--color-ink);
+}
+
+.advanced-input-picker .rule-list-grouped {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 6px 0 10px;
+}
+
+.advanced-input-picker .rule-doc {
+  margin-top: 8px;
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  background: var(--color-paper-elevated);
+  overflow: hidden;
+}
+
+.advanced-input-picker .rule-doc-head {
+  padding: 12px 14px;
+  border-radius: 0;
+  background: var(--color-paper-elevated);
+}
+
+.advanced-input-picker .rule-doc-headlines {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.advanced-input-picker .rule-toggle {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-rule-subtle);
+  border-left: 2px solid transparent;
+  background: var(--color-paper);
+}
+
+.advanced-input-picker .rule-toggle:hover {
+  background: var(--color-paper-elevated);
+  border-color: var(--color-rule);
+  border-left-color: var(--color-accent-line);
+}
+
+.advanced-input-picker .rule-toggle.is-selected {
+  border-color: var(--color-accent-line);
+  border-left-color: var(--color-accent);
+}
+
+.advanced-input-picker .rule-toggle-label {
+  white-space: normal;
+  line-height: 1.35;
 }
 
 /* Compact sticky strip showing what's picked. Single horizontal row;

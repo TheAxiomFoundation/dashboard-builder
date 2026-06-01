@@ -1,9 +1,9 @@
 # Reference DashboardSpec — Colorado SNAP FY 2026 benefit calculation.
 #
 # Picks a small, demo-friendly slice of the CO SNAP program: a few headline
-# inputs (household size, earnings, shelter cost, utility heating, citizenship,
-# elderly/disabled status) and the outputs the user actually wants to see
-# (eligibility verdict + monthly allotment + intermediate net income).
+# inputs (residency, household size, earnings, shelter cost, utility heating,
+# citizenship, elderly/disabled status) and the outputs the user actually
+# wants to see (eligibility verdict + monthly allotment).
 #
 # Every other input the program needs is supplied by the compute service from
 # the program's `.test.yaml` template — see compute/main.py.
@@ -52,7 +52,7 @@ inputs:
     legalId: "us:statutes/7/2012/j#relation.member_of_household"
     label: "Household members"
     group: "household"
-    order: 2
+    order: 3
     minCount: 1
     maxCount: 12
     memberInputs:
@@ -76,6 +76,15 @@ inputs:
         dtype: "boolean"
         label: "US citizen?"
         default: true
+
+  - id: "household_lives_in_application_state"
+    legalId: "us:regulations/7-cfr/273/3#input.household_lives_in_application_state"
+    dtype: "boolean"
+    label: "Lives in Colorado?"
+    group: "household"
+    order: 2
+    default: true
+    widget: "switch"
 
   - id: "employee_wages_received"
     legalId: "us-co:regulations/10-ccr-2506-1/4.403#input.employee_wages_received"
@@ -128,25 +137,3 @@ outputs:
       currency: "USD"
       decimals: 0
     showExplain: true
-
-  - id: "snap_net_income"
-    legalId: "us:statutes/7/2014/e/6/A#snap_net_income"
-    label: "Net monthly income (SNAP)"
-    emphasis: "secondary"
-    order: 3
-    presentation:
-      kind: "currency"
-      currency: "USD"
-      decimals: 0
-    showExplain: false
-
-  - id: "shelter_costs"
-    legalId: "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#shelter_costs"
-    label: "Total shelter costs"
-    emphasis: "secondary"
-    order: 4
-    presentation:
-      kind: "currency"
-      currency: "USD"
-      decimals: 0
-    showExplain: false
