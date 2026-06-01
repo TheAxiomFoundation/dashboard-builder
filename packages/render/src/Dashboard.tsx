@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type {
   ComputeCoverage,
   DashboardSpec,
+  InputBinding,
   InputGroup,
   OutputBinding,
+  OutputPresentation,
   OutputValue,
   TraceNode,
 } from "@dashboard-builder/spec";
@@ -77,9 +80,9 @@ interface DashboardProps {
  * The dashboard runtime — paint your inputs, calls /compute on change, shows
  * a hero result with secondary metrics and a trace explainer.
  *
- * Layout: two columns on wide screens (form ⟶ results, results sticky), a
- * single column stacked on narrow ones. Embedded variant (used inside the
- * builder's preview pane) collapses to one column with tighter spacing.
+ * Layout: a compact outcome bar above a two-column workspace on wide screens
+ * (inputs ⟶ results), stacked on narrow ones. Embedded variant (used inside
+ * the builder's preview pane) collapses to one column with tighter spacing.
  */
 export function Dashboard({
   spec,
@@ -106,6 +109,27 @@ export function Dashboard({
 
   const groups = useMemo(() => orderedGroups(spec), [spec]);
   const computeBusy = computeQueued || computing;
+  const outcomeBindings = useMemo(() => {
+    const orderedOutputs = [...spec.outputs].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const eligibility = findEligibilityOutput(orderedOutputs);
+    const amount = findAmountOutput(orderedOutputs);
+    return { eligibility, amount };
+  }, [spec]);
+  const hasOutcomeSummary = !!outcomeBindings.eligibility || !!outcomeBindings.amount;
+  const hiddenSummaryOutputIds = useMemo(
+    () =>
+      hasOutcomeSummary
+        ? [
+            ...new Set(
+              [
+                outcomeBindings.eligibility?.legalId,
+                outcomeBindings.amount?.legalId,
+              ].filter(Boolean) as string[],
+            ),
+          ]
+        : [],
+    [hasOutcomeSummary, outcomeBindings],
+  );
 
   useEffect(() => {
     setState(initialState(spec));
@@ -222,93 +246,97 @@ export function Dashboard({
     <div className={variant === "embedded" ? "dashboard embedded" : "dashboard"}>
       <div className="dashboard-grid">
         <div className="dashboard-form">
+          <div className="input-workspace-head">
+            <div>
+              <span className="input-workspace-eyebrow">Inputs</span>
+              <h2>Household details</h2>
+            </div>
+          </div>
+
           {error && <div className="warning">{error}</div>}
 
-          {groups.map((group) => {
+          {groups.map((group, groupIndex) => {
             const inputs = spec.inputs
               .filter(
                 (b) => (("group" in b ? b.group : undefined) ?? "_") === group.key,
               )
               .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-            if (inputs.length === 0) return null;
+            const visibleInputs = inputs.filter((binding) =>
+              shouldShowBinding(binding, spec, state),
+            );
+            if (visibleInputs.length === 0) return null;
 
             return (
-              <section className="form-section" key={group.key}>
-                <h2 className="section-title">{group.label}</h2>
-                {group.description && <p className="section-description">{group.description}</p>}
-
-                <div className="field-stack">
-                  {inputs.map((binding) => {
-                    // When a relation is exposed, hide the household-size
-                    // scalar — its value is automatically derived from the
-                    // member count at compute time. Showing both would let
-                    // them disagree.
-                    if (
-                      !isRelationBinding(binding) &&
-                      hasExposedRelation(spec) &&
-                      isHouseholdSizeBinding(binding)
-                    ) {
-                      return null;
-                    }
-                    if (isRelationBinding(binding)) {
-                      const members = state.relations[binding.id] ?? [];
-                      return (
-                        <div key={binding.id} className="relation-block">
-                          <div className="field-head">
-                            <label>{binding.label}</label>
-                            {binding.help && <span className="help">{binding.help}</span>}
-                          </div>
-                          {members.map((member, idx) => (
-                            <div className="member-card" key={idx}>
-                              <div className="member-card-header">
-                                <strong>Member {idx + 1}</strong>
-                                {(binding.minCount ?? 1) < members.length && (
-                                  <button
-                                    className="btn ghost"
-                                    onClick={() => removeRelationMember(binding.id, idx)}
-                                  >
-                                    Remove
-                                  </button>
-                                )}
+              <InputSection
+                key={group.key}
+                group={group}
+                initialOpen={groupIndex < 2}
+              >
+                <div className="form-section-body">
+                  <div className="field-stack">
+                    {visibleInputs.map((binding) => {
+                      if (isRelationBinding(binding)) {
+                        const members = state.relations[binding.id] ?? [];
+                        return (
+                          <div key={binding.id} className="relation-block">
+                            <div className="relation-head">
+                              <div className="field-head">
+                                <label>{binding.label}</label>
+                                {binding.help && <span className="help">{binding.help}</span>}
                               </div>
-                              <div className="field-stack">
-                                {binding.memberInputs.map((mb) => (
-                                  <Field
-                                    key={mb.id}
-                                    binding={mb}
-                                    value={member[mb.id]}
-                                    onChange={(v) =>
-                                      setRelationMember(binding.id, idx, mb.id, v)
-                                    }
-                                  />
-                                ))}
-                              </div>
+                              {(!binding.maxCount || members.length < binding.maxCount) && (
+                                <button
+                                  type="button"
+                                  className="btn secondary relation-add-member"
+                                  onClick={() => addRelationMember(binding.id)}
+                                >
+                                  + Add household member
+                                </button>
+                              )}
                             </div>
-                          ))}
-                          {(!binding.maxCount || members.length < binding.maxCount) && (
-                            <button
-                              className="btn secondary"
-                              onClick={() => addRelationMember(binding.id)}
-                            >
-                              + Add member
-                            </button>
-                          )}
-                        </div>
-                      );
-                    }
+                            {members.map((member, idx) => (
+                              <div className="member-card" key={idx}>
+                                <div className="member-card-header">
+                                  <strong>Member {idx + 1}</strong>
+                                  {(binding.minCount ?? 1) < members.length && (
+                                    <button
+                                      className="btn ghost"
+                                      onClick={() => removeRelationMember(binding.id, idx)}
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="field-stack">
+                                  {binding.memberInputs.map((mb) => (
+                                    <Field
+                                      key={mb.id}
+                                      binding={mb}
+                                      value={member[mb.id]}
+                                      onChange={(v) =>
+                                        setRelationMember(binding.id, idx, mb.id, v)
+                                      }
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
 
-                    if (!isVisible(binding, state.scalars)) return null;
-                    return (
-                      <Field
-                        key={binding.id}
-                        binding={binding}
-                        value={state.scalars[binding.id]}
-                        onChange={(v) => setScalar(binding.id, v)}
-                      />
-                    );
-                  })}
+                      return (
+                        <Field
+                          key={binding.id}
+                          binding={binding}
+                          value={state.scalars[binding.id]}
+                          onChange={(v) => setScalar(binding.id, v)}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
-              </section>
+              </InputSection>
             );
           })}
 
@@ -321,13 +349,22 @@ export function Dashboard({
           )}
         </div>
 
-        {/* Wrapper keeps ComputeStatus + Results in a single grid cell.
-            Without it, ComputeStatus would claim its own grid column
-            during compute, pushing Results to a new row below the form
-            — visible as a "right side drops below the form" flicker on
-            every Calculate. */}
         <div className="dashboard-results-col">
-          {computeBusy && <ComputeStatus />}
+          <div className="output-workspace-head">
+            <span className="output-workspace-eyebrow">Outputs</span>
+            <h2>{hasOutcomeSummary ? "Estimated result" : "Selected results"}</h2>
+          </div>
+          {hasOutcomeSummary && (
+            <OutcomeBar
+              eligibility={outcomeBindings.eligibility}
+              amount={outcomeBindings.amount}
+              outputs={outputs}
+              warnings={warnings}
+              mode={mode}
+              busy={computeBusy}
+              error={error}
+            />
+          )}
           <Results
             spec={spec}
             outputs={outputs}
@@ -336,6 +373,7 @@ export function Dashboard({
             warnings={warnings}
             mode={mode}
             showCoverage={variant === "embedded"}
+            hiddenSummaryOutputIds={hiddenSummaryOutputIds}
             onExposeInput={onExposeInput}
             exposedInputIds={exposedInputIds}
             onAddOutput={onAddOutput}
@@ -344,6 +382,100 @@ export function Dashboard({
         </div>
       </div>
     </div>
+  );
+}
+
+function InputSection({
+  group,
+  initialOpen,
+  children,
+}: {
+  group: InputGroup;
+  initialOpen: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(initialOpen);
+  return (
+    <details
+      className="form-section"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="form-section-summary">
+        <span className="section-title-wrap">
+          <span className="section-title">{group.label}</span>
+          {group.description && (
+            <span className="section-description">{group.description}</span>
+          )}
+        </span>
+      </summary>
+      {children}
+    </details>
+  );
+}
+
+function OutcomeBar({
+  eligibility,
+  amount,
+  outputs,
+  warnings,
+  mode,
+  busy,
+  error,
+}: {
+  eligibility: OutputBinding | undefined;
+  amount: OutputBinding | undefined;
+  outputs: OutputValue[];
+  warnings: string[];
+  mode: string;
+  busy: boolean;
+  error: string | null;
+}) {
+  const byLegalId = new Map(outputs.map((o) => [o.legalId, o]));
+  const amountOutput = amount ? byLegalId.get(amount.legalId) : undefined;
+  const eligibilityOutput = eligibility ? byLegalId.get(eligibility.legalId) : undefined;
+  const verdict = eligibilityOutput ? verdictForValue(eligibilityOutput.value) : "unknown";
+  const realWarnings = warnings.filter((w) => !w.toLowerCase().includes("demo mode"));
+  const metaItems = [
+    ...(mode === "demo" ? ["Test-fixture values"] : []),
+    ...(error ? ["Compute error"] : []),
+    ...(!error && realWarnings.length > 0
+      ? [`${realWarnings.length} warning${realWarnings.length === 1 ? "" : "s"}`]
+      : []),
+  ];
+
+  return (
+    <section
+      className={`outcome-bar ${busy || metaItems.length > 0 ? "has-meta" : ""}`}
+      aria-label="Current outcome"
+    >
+      <div className={`outcome-panel-body ${!eligibility || !amount ? "single" : ""}`}>
+        {eligibility && (
+          <div className={`outcome-verdict ${verdict}`}>
+            <span className="outcome-label">Eligibility</span>
+            <strong>{formatVerdict(eligibility, eligibilityOutput?.value)}</strong>
+          </div>
+        )}
+        {amount && (
+          <div className="outcome-main">
+            <span className="outcome-label">{amount.label}</span>
+            <strong>{formatOutcomeValue(amountOutput, amount.presentation)}</strong>
+          </div>
+        )}
+      </div>
+      {(busy || metaItems.length > 0) && (
+        <div className="outcome-meta">
+          {busy && (
+            <span className="outcome-spinner" role="status" aria-label="Calculating" />
+          )}
+          {metaItems.map((item) => (
+            <span key={item} className={item === "Compute error" ? "outcome-error" : undefined}>
+              {item}
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -358,6 +490,79 @@ function ComputeStatus() {
 
 function hasExposedRelation(spec: DashboardSpec): boolean {
   return spec.inputs.some((b) => isRelationBinding(b));
+}
+
+function shouldShowBinding(
+  binding: InputBinding,
+  spec: DashboardSpec,
+  state: FormState,
+): boolean {
+  if (isRelationBinding(binding)) return true;
+  if (hasExposedRelation(spec) && isHouseholdSizeBinding(binding)) return false;
+  return isVisible(binding, state.scalars);
+}
+
+function findEligibilityOutput(outputs: OutputBinding[]): OutputBinding | undefined {
+  return outputs.find((o) => o.presentation.kind === "eligibility")
+    ?? outputs.find((o) => outputText(o).includes("eligible"));
+}
+
+function findAmountOutput(outputs: OutputBinding[]): OutputBinding | undefined {
+  return outputs.find((o) => {
+      const text = outputText(o);
+      return text.includes("benefit") || text.includes("allotment") || text.includes("amount");
+    });
+}
+
+function outputText(output: OutputBinding): string {
+  return `${output.id} ${output.legalId} ${output.label}`.toLowerCase();
+}
+
+function verdictForValue(value: OutputValue["value"] | undefined) {
+  if (value === "holds" || value === true) return "holds";
+  if (value === "not_holds" || value === false) return "not_holds";
+  return "unknown";
+}
+
+function formatVerdict(binding: OutputBinding | undefined, value: OutputValue["value"] | undefined): string {
+  if (value === "holds" || value === true) {
+    return binding?.presentation.kind === "eligibility"
+      ? binding.presentation.positiveLabel ?? "Eligible"
+      : "Eligible";
+  }
+  if (value === "not_holds" || value === false) {
+    return binding?.presentation.kind === "eligibility"
+      ? binding.presentation.negativeLabel ?? "Not eligible"
+      : "Not eligible";
+  }
+  return "Unknown";
+}
+
+function formatOutcomeValue(
+  output: OutputValue | undefined,
+  presentation: OutputPresentation,
+): string {
+  if (!output || output.value === null || output.value === undefined) return "Pending";
+  const value = output.value;
+  if (presentation.kind === "currency" && typeof value === "number") {
+    const decimals = presentation.decimals ?? 2;
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: presentation.currency ?? "USD",
+      maximumFractionDigits: decimals,
+      minimumFractionDigits: decimals,
+    }).format(value);
+  }
+  if (presentation.kind === "number" && typeof value === "number") {
+    const decimals = presentation.decimals ?? 2;
+    return value.toLocaleString("en-US", {
+      maximumFractionDigits: decimals,
+      minimumFractionDigits: decimals,
+    }) + (presentation.suffix ?? "");
+  }
+  if (presentation.kind === "eligibility") return formatVerdict(undefined, value);
+  if (typeof value === "number") return value.toLocaleString("en-US");
+  return String(value);
 }
 
 function isHouseholdSizeBinding(binding: { legalId: string }): boolean {

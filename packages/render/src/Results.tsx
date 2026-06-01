@@ -19,6 +19,8 @@ interface Props {
   mode: string;
   /** When true (set by the builder's preview pane), show coverage signal aimed at dashboard authors. */
   showCoverage?: boolean;
+  /** Hide outputs that are already represented by a surrounding dashboard summary. */
+  hiddenSummaryOutputIds?: string[];
   /** Builder-only: handle "expose this input" clicks on default trace leaves. */
   onExposeInput?: (legalId: string) => void;
   /** Builder-only: legal IDs already exposed in the dashboard (used to label leaves correctly across re-renders). */
@@ -48,66 +50,80 @@ export function Results({
   warnings,
   mode,
   showCoverage = false,
+  hiddenSummaryOutputIds = [],
   onExposeInput,
   exposedInputIds,
   onAddOutput,
   selectedOutputIds,
 }: Props) {
   const byLegalId = new Map(outputs.map((o) => [o.legalId, o]));
+  const hiddenSummaryIds = new Set(hiddenSummaryOutputIds);
   const ordered = [...spec.outputs].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const headlineList = ordered.filter((o) => o.emphasis !== "secondary");
-  const secondary = ordered.filter((o) => o.emphasis === "secondary");
-  const hero = headlineList[0];
-  const otherHeadlines = headlineList.slice(1);
+  const visibleHeadlines = headlineList.filter((o) => !hiddenSummaryIds.has(o.legalId));
+  const secondary = ordered.filter(
+    (o) => o.emphasis === "secondary" && !hiddenSummaryIds.has(o.legalId),
+  );
+  const hero = visibleHeadlines[0];
+  const otherHeadlines = visibleHeadlines.slice(1);
 
   const tracedHeadlines = headlineList.filter((o) => o.showExplain);
   const realWarnings = warnings.filter((w) => !w.toLowerCase().includes("demo mode"));
+  const hasSummary =
+    mode === "demo" ||
+    (showCoverage && !!coverage) ||
+    realWarnings.length > 0 ||
+    !!hero ||
+    otherHeadlines.length > 0 ||
+    secondary.length > 0;
 
   return (
     <section className="results">
-      <div className="results-summary">
-        {mode === "demo" && (
-          <span
-            className="info-pill"
-            title="Set AXIOM_RULES_ENGINE_BIN and install the axiom_rules_engine Python package for live computation. See compute/README.md."
-          >
-            Test-fixture values · engine not connected
-          </span>
-        )}
+      {hasSummary && (
+        <div className="results-summary">
+          {mode === "demo" && (
+            <span
+              className="info-pill"
+              title="Set AXIOM_RULES_ENGINE_BIN and install the axiom_rules_engine Python package for live computation. See compute/README.md."
+            >
+              Test-fixture values · engine not connected
+            </span>
+          )}
 
-        {showCoverage && coverage && <CoverageStrip coverage={coverage} />}
+          {showCoverage && coverage && <CoverageStrip coverage={coverage} />}
 
-        {realWarnings.map((w) => (
-          <div className="warning" key={w}>
-            {w}
-          </div>
-        ))}
+          {realWarnings.map((w) => (
+            <div className="warning" key={w}>
+              {w}
+            </div>
+          ))}
 
-        {hero && (
-          <Hero binding={hero} output={byLegalId.get(hero.legalId)} />
-        )}
+          {hero && (
+            <Hero binding={hero} output={byLegalId.get(hero.legalId)} />
+          )}
 
-        {(otherHeadlines.length > 0 || secondary.length > 0) && (
-          <div className="ledger">
-            {otherHeadlines.map((b) => (
-              <LedgerRow
-                key={b.id}
-                binding={b}
-                output={byLegalId.get(b.legalId)}
-                emphasis="strong"
-              />
-            ))}
-            {secondary.map((b) => (
-              <LedgerRow
-                key={b.id}
-                binding={b}
-                output={byLegalId.get(b.legalId)}
-                emphasis="muted"
-              />
-            ))}
-          </div>
-        )}
-      </div>
+          {(otherHeadlines.length > 0 || secondary.length > 0) && (
+            <div className="ledger">
+              {otherHeadlines.map((b) => (
+                <LedgerRow
+                  key={b.id}
+                  binding={b}
+                  output={byLegalId.get(b.legalId)}
+                  emphasis="strong"
+                />
+              ))}
+              {secondary.map((b) => (
+                <LedgerRow
+                  key={b.id}
+                  binding={b}
+                  output={byLegalId.get(b.legalId)}
+                  emphasis="muted"
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {tracedHeadlines.length > 0 && (
         <Explanation
