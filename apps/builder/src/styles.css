@@ -558,38 +558,29 @@ body, html, #root {
   .workspace { grid-template-columns: 1fr; }
   .preview-pane { border-left: none; border-top: 1px solid var(--color-rule); max-height: none; }
   .wizard-pane { max-height: none; padding: 32px 24px; }
-}
 
-/* ═══════════════════════════════════════════
-   Phone layout (≤640px)
-   ─────────────────────────────────────────────
-   The header is a rigid three-column grid
-   (minmax(280px,1fr) auto minmax(280px,1fr)) plus
-   a five-pill step indicator, which forces a min
-   width well past a phone viewport and pushes the
-   whole page off-screen to the right. On phones we
-   collapse the header to a single stacked column,
-   let the step pills scroll horizontally inside
-   their own contained track, and trim padding so
-   the wizard content fits the viewport. Desktop is
-   untouched — these rules only apply ≤640px.
-   ═══════════════════════════════════════════ */
-@media (max-width: 640px) {
-  /* Belt-and-suspenders: never let the page itself scroll sideways. */
+  /* Tablet / small-laptop header fix.
+     ─────────────────────────────────────────────
+     The header is a rigid three-column grid
+     (minmax(280px,1fr) auto minmax(280px,1fr)) and the centered
+     five-pill step indicator is intrinsically ~700px wide. Together
+     they demand ~1400px of width, so on any viewport narrower than
+     that the header — and the whole page with it — overflows
+     sideways. This is the breakpoint where the workspace already
+     drops to a single column, so we collapse the header to a stacked
+     layout here too and let the step pills scroll inside their own
+     contained track. Desktop (≥1081px) keeps the original grid
+     untouched. */
   html, body { overflow-x: hidden; }
 
   .app-header {
     grid-template-columns: minmax(0, 1fr);
     justify-items: stretch;
     gap: 12px;
-    padding: 14px 16px;
   }
 
   .brand { justify-content: flex-start; min-width: 0; }
-  .brand-title { white-space: normal; }
 
-  /* Step pills get their own horizontally-scrollable track so they
-     never widen the header past the viewport. */
   .steps {
     justify-content: flex-start;
     flex-wrap: nowrap;
@@ -600,9 +591,26 @@ body, html, #root {
     max-width: 100%;
   }
   .steps::-webkit-scrollbar { display: none; }
-  .step-pill { flex: 0 0 auto; padding: 8px 12px; }
+  .step-pill { flex: 0 0 auto; }
 
   .app-actions { justify-content: flex-start; }
+}
+
+/* ═══════════════════════════════════════════
+   Phone layout (≤640px)
+   ─────────────────────────────────────────────
+   The header collapse + step-pill scroll track + page overflow guard
+   are inherited from the ≤1080px block above (they're needed all the
+   way up through tablet widths). This block layers the phone-specific
+   tightening on top: smaller header/wizard padding, full-width nav
+   buttons, single-column forms, and tap-target trims.
+   ═══════════════════════════════════════════ */
+@media (max-width: 640px) {
+  .app-header { padding: 14px 16px; }
+
+  .brand-title { white-space: normal; }
+
+  .step-pill { padding: 8px 12px; }
 
   .wizard-pane { padding: 24px 16px 96px; }
   .workspace.wizard-centered .wizard-pane { padding: 48px 16px 64px; gap: 32px; }
@@ -615,6 +623,12 @@ body, html, #root {
 
   /* Two-column meta form (title / slug) stacks on phones. */
   .meta-grid { grid-template-columns: minmax(0, 1fr); }
+
+  /* Two-format export grid (YAML | JSON) on the publish step is two
+     columns of two buttons each — it overflows the padded content
+     column on a phone. Stack the two formats; their buttons stay
+     side-by-side via .export-format-actions. */
+  .export-grid { grid-template-columns: minmax(0, 1fr); }
 
   /* Modal dialogs already cap at min(100%, …); just give them breathing
      room from the top on short phone screens. */
