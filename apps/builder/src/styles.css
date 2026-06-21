@@ -561,6 +561,67 @@ body, html, #root {
 }
 
 /* ═══════════════════════════════════════════
+   Phone layout (≤640px)
+   ─────────────────────────────────────────────
+   The header is a rigid three-column grid
+   (minmax(280px,1fr) auto minmax(280px,1fr)) plus
+   a five-pill step indicator, which forces a min
+   width well past a phone viewport and pushes the
+   whole page off-screen to the right. On phones we
+   collapse the header to a single stacked column,
+   let the step pills scroll horizontally inside
+   their own contained track, and trim padding so
+   the wizard content fits the viewport. Desktop is
+   untouched — these rules only apply ≤640px.
+   ═══════════════════════════════════════════ */
+@media (max-width: 640px) {
+  /* Belt-and-suspenders: never let the page itself scroll sideways. */
+  html, body { overflow-x: hidden; }
+
+  .app-header {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: stretch;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+
+  .brand { justify-content: flex-start; min-width: 0; }
+  .brand-title { white-space: normal; }
+
+  /* Step pills get their own horizontally-scrollable track so they
+     never widen the header past the viewport. */
+  .steps {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+    max-width: 100%;
+  }
+  .steps::-webkit-scrollbar { display: none; }
+  .step-pill { flex: 0 0 auto; padding: 8px 12px; }
+
+  .app-actions { justify-content: flex-start; }
+
+  .wizard-pane { padding: 24px 16px 96px; }
+  .workspace.wizard-centered .wizard-pane { padding: 48px 16px 64px; gap: 32px; }
+
+  /* Step nav: keep Back / Continue reachable; stack progress label
+     above the buttons and let the buttons fill the row. */
+  .wizard-nav { flex-wrap: wrap; gap: 10px; }
+  .wizard-nav .nav-actions { flex: 1 1 100%; }
+  .wizard-nav .nav-actions .btn { flex: 1 1 0; }
+
+  /* Two-column meta form (title / slug) stacks on phones. */
+  .meta-grid { grid-template-columns: minmax(0, 1fr); }
+
+  /* Modal dialogs already cap at min(100%, …); just give them breathing
+     room from the top on short phone screens. */
+  .reset-confirm-backdrop { padding: 80px 16px 16px; }
+}
+
+/* ═══════════════════════════════════════════
    Step content — eyebrow, heading, body
    ═══════════════════════════════════════════ */
 
