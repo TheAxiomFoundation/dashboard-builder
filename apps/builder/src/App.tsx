@@ -3,6 +3,7 @@ import { fetchProgramGraph, fetchSensitivity, type SensitivityResult } from "./a
 import { emptyDraft, type Draft } from "./draft";
 import { STEPS, StepHeader, StepIndicator, StepNav, type StepId } from "./Wizard";
 import {
+  CURATED_PROGRAMS,
   ProgramStep,
   curatedCoreQuestionIdsForOutputs,
   curatedForDraft,
@@ -134,7 +135,60 @@ function loadStep(): StepId {
 
 export function App() {
   const [draft, setDraft] = useState<Draft>(loadDraft);
+  const outputDeepLinkHandled = useRef(false);
   const [stepId, setStepId] = useState<StepId>(loadStep);
+
+  // "?output=<rule legalId>" deep link — "use this rule as an output".
+  // Probe the curated programs' graphs for the rule (exact legal-id
+  // match, then same-fragment fallback), select the first program
+  // containing it with the output preselected, and land on step II so
+  // the user sees what was chosen. Sent by axiom-foundation.org
+  // section pages.
+  useEffect(() => {
+    if (outputDeepLinkHandled.current || typeof window === "undefined") return;
+    const requested = new URL(window.location.href).searchParams
+      .get("output")
+      ?.trim();
+    if (!requested) return;
+    outputDeepLinkHandled.current = true;
+    let cancelled = false;
+    (async () => {
+      const fragment = requested.split("#")[1] ?? null;
+      for (const curated of CURATED_PROGRAMS) {
+        try {
+          const graph = await fetchProgramGraph(curated.repo, curated.path);
+          const rule =
+            graph.rules.find((r) => r.legalId === requested) ??
+            (fragment
+              ? graph.rules.find(
+                  (r) => r.legalId.split("#")[1] === fragment,
+                )
+              : undefined);
+          if (!rule) continue;
+          if (cancelled) return;
+          setDraft({
+            ...emptyDraft(),
+            program: {
+              repo: curated.repo,
+              path: curated.path,
+              displayName: curated.label,
+            },
+            graph,
+            outputs: [selectOutput(rule)],
+            meta: { title: curated.label, description: "" },
+          });
+          setStepId("outputs");
+          return;
+        } catch {
+          // Compute service miss for this program — try the next one.
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   // Persist draft + step across refreshes.

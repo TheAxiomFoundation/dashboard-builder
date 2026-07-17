@@ -68,7 +68,7 @@ export interface RecommendedInput {
   default?: string | number | boolean;
 }
 
-const CURATED_PROGRAMS: CuratedProgram[] = [
+export const CURATED_PROGRAMS: CuratedProgram[] = [
   {
     repo: "rulespec-us-co",
     path: "policies/cdhs/snap/fy-2026-benefit-calculation.yaml",
