@@ -186,7 +186,12 @@ export function App() {
             outputs: rule ? [selectOutput(rule)] : [],
             meta: { title: curated.label, description: "" },
           });
-          setStepId("outputs");
+          // The linked node IS the calculator's output: land on
+          // "what should the user fill in?" (the inputs-step effect
+          // auto-applies the curated recommended setup). Only the
+          // file-prefix fallback pauses on the outputs step, since
+          // the user still has to choose which output they meant.
+          setStepId(rule ? "inputs" : "outputs");
           return;
         } catch {
           // Compute service miss for this program — try the next one.
