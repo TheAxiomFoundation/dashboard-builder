@@ -154,6 +154,7 @@ export function App() {
     let cancelled = false;
     (async () => {
       const fragment = requested.split("#")[1] ?? null;
+      const filePrefix = requested.split("#")[0];
       for (const curated of CURATED_PROGRAMS) {
         try {
           const graph = await fetchProgramGraph(curated.repo, curated.path);
@@ -164,7 +165,15 @@ export function App() {
                   (r) => r.legalId.split("#")[1] === fragment,
                 )
               : undefined);
-          if (!rule) continue;
+          // Compositions rename/inline some rules; if the exact rule
+          // is absent but the program contains rules from the same
+          // source file, still select the program and land on the
+          // outputs step so the user picks among that provision's
+          // outputs instead of starting from the bare picker.
+          const fileMatch =
+            !rule &&
+            graph.rules.some((r) => r.legalId.startsWith(`${filePrefix}#`));
+          if (!rule && !fileMatch) continue;
           if (cancelled) return;
           setDraft({
             ...emptyDraft(),
@@ -174,7 +183,7 @@ export function App() {
               displayName: curated.label,
             },
             graph,
-            outputs: [selectOutput(rule)],
+            outputs: rule ? [selectOutput(rule)] : [],
             meta: { title: curated.label, description: "" },
           });
           setStepId("outputs");
