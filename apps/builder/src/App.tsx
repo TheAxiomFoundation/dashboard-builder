@@ -137,6 +137,12 @@ export function App() {
   const [draft, setDraft] = useState<Draft>(loadDraft);
   const outputDeepLinkHandled = useRef(false);
   const [stepId, setStepId] = useState<StepId>(loadStep);
+  // Set when a ?output= deep link names a section/file rather than a
+  // single rule — the outputs step scopes its picker to this legal-id
+  // prefix ("select which of this provision's rules become outputs").
+  const [outputSourceFilter, setOutputSourceFilter] = useState<string | null>(
+    null,
+  );
 
   // "?output=<rule legalId>" deep link — "use this rule as an output".
   // Probe the curated programs' graphs for the rule (exact legal-id
@@ -171,7 +177,11 @@ export function App() {
           // outputs instead of starting from the bare picker.
           const fileMatch =
             !rule &&
-            graph.rules.some((r) => r.legalId.startsWith(`${filePrefix}#`));
+            graph.rules.some(
+              (r) =>
+                r.legalId.startsWith(`${filePrefix}#`) ||
+                r.legalId.startsWith(`${filePrefix}/`),
+            );
           if (!rule && !fileMatch) continue;
           if (cancelled) return;
           // Mark handled only at apply time: StrictMode's dev
@@ -194,6 +204,10 @@ export function App() {
           // auto-applies the curated recommended setup). Only the
           // file-prefix fallback pauses on the outputs step, since
           // the user still has to choose which output they meant.
+          if (!rule) {
+            setOutputSourceFilter(filePrefix ?? null);
+            setOutputStage("intermediates");
+          }
           setStepId(rule ? "inputs" : "outputs");
           return;
         } catch {
@@ -728,6 +742,8 @@ export function App() {
                 setDraft={setDraft}
                 stage={outputStage}
                 onAdvanceToIntermediates={() => setOutputStage("intermediates")}
+                sourceFilter={outputSourceFilter}
+                onClearSourceFilter={() => setOutputSourceFilter(null)}
               />
             )}
             {stepId === "inputs" && (

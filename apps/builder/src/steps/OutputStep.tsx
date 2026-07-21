@@ -23,6 +23,13 @@ interface Props {
   stage: "main" | "intermediates";
   /** Advance from the curated goal cards into the full output picker. */
   onAdvanceToIntermediates?: () => void;
+  /**
+   * Legal-id prefix from a section deep link ("us:statutes/7/2017") —
+   * scope the picker to that provision's rules so the user selects
+   * which of them become outputs.
+   */
+  sourceFilter?: string | null;
+  onClearSourceFilter?: () => void;
 }
 
 /**
@@ -42,6 +49,8 @@ export function OutputStep({
   setDraft,
   stage,
   onAdvanceToIntermediates,
+  sourceFilter = null,
+  onClearSourceFilter,
 }: Props) {
   const [query, setQuery] = useState("");
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -59,15 +68,21 @@ export function OutputStep({
   // mismatch etc). Hiding the incompatible ones is cleaner than the
   // dimmed-with-tag treatment we used previously: the picker only
   // surfaces choices that will actually work.
-  const availableRules = useMemo(
-    () =>
-      allRules.filter(
-        (r) =>
-          !selectedIds.has(r.legalId) &&
-          !validateOutput(r, draft, graph.rules),
-      ),
-    [allRules, selectedIds, draft, graph.rules],
-  );
+  const availableRules = useMemo(() => {
+    const pickable = allRules.filter(
+      (r) =>
+        !selectedIds.has(r.legalId) &&
+        !validateOutput(r, draft, graph.rules),
+    );
+    if (!sourceFilter) return pickable;
+    // Section deep link: only this provision's rules (its own file and
+    // any subsection-granular files below it).
+    return pickable.filter(
+      (r) =>
+        r.legalId.startsWith(`${sourceFilter}#`) ||
+        r.legalId.startsWith(`${sourceFilter}/`),
+    );
+  }, [allRules, selectedIds, draft, graph.rules, sourceFilter]);
   const terminal = new Set(graph.terminalOutputs);
 
   // ---------- search-driven flat view ----------
@@ -523,6 +538,24 @@ export function OutputStep({
   const hasPicks = draft.outputs.length > 0;
   return (
     <div className="step-body step-narrow">
+      {sourceFilter && (
+        <div className="source-filter-banner" role="status">
+          <span>
+            Showing rules encoded from{" "}
+            <strong>{humanizeCitation(sourceFilter) || sourceFilter}</strong> —
+            pick the ones your calculator should compute.
+          </span>
+          {onClearSourceFilter && (
+            <button
+              type="button"
+              className="source-filter-clear"
+              onClick={onClearSourceFilter}
+            >
+              show all program rules
+            </button>
+          )}
+        </div>
+      )}
       {hasPicks && (
         <section className="picked-strip" aria-label="Picked results">
           <div className="picked-strip-head">
