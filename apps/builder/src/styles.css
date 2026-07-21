@@ -3891,3 +3891,28 @@ body, html, #root {
   letter-spacing: 0;
   text-transform: none;
 }
+
+/* Section deep-link banner: the picker is scoped to one provision. */
+.source-filter-banner {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--rule, #e7e5e4);
+  border-left: 3px solid var(--accent, #92400e);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.source-filter-clear {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent, #92400e);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  white-space: nowrap;
+}
