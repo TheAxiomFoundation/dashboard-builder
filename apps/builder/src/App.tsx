@@ -150,7 +150,6 @@ export function App() {
       .get("output")
       ?.trim();
     if (!requested) return;
-    outputDeepLinkHandled.current = true;
     let cancelled = false;
     (async () => {
       const fragment = requested.split("#")[1] ?? null;
@@ -175,6 +174,10 @@ export function App() {
             graph.rules.some((r) => r.legalId.startsWith(`${filePrefix}#`));
           if (!rule && !fileMatch) continue;
           if (cancelled) return;
+          // Mark handled only at apply time: StrictMode's dev
+          // double-mount cancels the first run, and a pre-marked ref
+          // would make the second run bail before applying anything.
+          outputDeepLinkHandled.current = true;
           setDraft({
             ...emptyDraft(),
             program: {
