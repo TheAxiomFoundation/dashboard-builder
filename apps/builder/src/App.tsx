@@ -672,7 +672,7 @@ export function App() {
         <div className="brand">
           <img
             className="brand-mark-logo"
-            src="/favicon.svg"
+            src={`${import.meta.env.BASE_URL}favicon.svg`}
             alt=""
             aria-hidden="true"
           />

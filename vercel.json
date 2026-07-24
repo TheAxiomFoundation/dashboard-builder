@@ -3,5 +3,12 @@
   "framework": "vite",
   "installCommand": "corepack pnpm install --frozen-lockfile",
   "buildCommand": "corepack pnpm --filter @dashboard-builder/builder build",
-  "outputDirectory": "apps/builder/dist"
+  "outputDirectory": "apps/builder/dist",
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "https://axiom.org/builder",
+      "permanent": true
+    }
+  ]
 }
