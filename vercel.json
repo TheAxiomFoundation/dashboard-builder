@@ -4,6 +4,16 @@
   "installCommand": "corepack pnpm install --frozen-lockfile",
   "buildCommand": "corepack pnpm --filter @dashboard-builder/builder build",
   "outputDirectory": "apps/builder/dist",
+  "rewrites": [
+    {
+      "source": "/builder",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/builder/:path*",
+      "destination": "/:path*"
+    }
+  ],
   "redirects": [
     {
       "source": "/",
