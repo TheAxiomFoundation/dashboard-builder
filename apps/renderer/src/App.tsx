@@ -41,7 +41,15 @@ export function App() {
   return (
     <div className="shell">
       <header className="shell-header">
-        <span className="shell-mark">∀</span>
+        {/* Outlined-path ∀ mark (settled brand lockup, w350) — never a live-font glyph. */}
+        <span className="shell-mark" aria-hidden="true">
+          <svg viewBox="0 0 659 710" focusable="false">
+            <path
+              fill="currentColor"
+              d="M21 0L278 710L381 710L638 0L554 0L481 207L178 207L105 0ZM204 283L455 283L329 642Z"
+            />
+          </svg>
+        </span>
         <div className="shell-meta">
           <span className="eyebrow">Axiom form</span>
           <span className="source">source: <code>{source}</code></span>
