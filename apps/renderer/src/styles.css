@@ -28,10 +28,15 @@
   border-radius: 4px;
   background: var(--color-ink);
   color: var(--color-paper);
-  font-family: var(--f-serif);
-  font-style: italic;
-  font-size: 20px;
   line-height: 1;
+}
+
+/* Outlined-path ∀ glyph (paper on ink) — sized to match the old 20px live-font glyph. */
+.shell-mark svg {
+  display: block;
+  height: 18px;
+  width: auto;
+  fill: currentColor;
 }
 
 .shell-meta {
