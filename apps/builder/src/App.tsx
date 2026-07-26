@@ -669,31 +669,26 @@ export function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <a
-          className="brand"
-          href="https://axiom-foundation.org"
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Axiom Foundation"
-        >
-          <img
-            className="brand-mark-logo"
-            src={`${import.meta.env.BASE_URL}favicon.svg`}
-            alt=""
-            aria-hidden="true"
-          />
-          <span className="brand-title">
-            Axiom · <strong>Form Builder</strong>
-          </span>
-        </a>
+        <div className="brand">
+          <a
+            className="brand-logo"
+            href="https://axiom-foundation.org"
+            aria-label="Axiom Foundation"
+          >
+            <img
+              className="brand-wordmark"
+              src={`${import.meta.env.BASE_URL}axiom-foundation.svg`}
+              alt="Axiom Foundation"
+            />
+          </a>
+          <a className="brand-title" href={import.meta.env.BASE_URL}>
+            <span className="brand-eyebrow">Interactive</span>
+            <span className="brand-name">Form Builder</span>
+          </a>
+        </div>
         <StepIndicator current={stepId} draft={draft} onJump={jumpTo} />
         <div className="app-actions">
-          <a
-            className="btn ghost"
-            href="https://axiom-foundation.org/demos"
-            target="_blank"
-            rel="noreferrer"
-          >
+          <a className="all-demos-link" href="https://axiom.org/demos">
             All demos
           </a>
           <button
