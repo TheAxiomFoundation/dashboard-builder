@@ -682,7 +682,6 @@ export function App() {
             />
           </a>
           <a className="brand-title" href={import.meta.env.BASE_URL}>
-            <span className="brand-eyebrow">Interactive</span>
             <span className="brand-name">Form Builder</span>
           </a>
         </div>
