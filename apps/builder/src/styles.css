@@ -86,6 +86,8 @@ body, html, #root {
   display: flex;
   align-items: center;
   gap: 14px;
+  text-decoration: none;
+  color: inherit;
 }
 
 .brand-mark {

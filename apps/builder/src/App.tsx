@@ -669,7 +669,13 @@ export function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <div className="brand">
+        <a
+          className="brand"
+          href="https://axiom-foundation.org"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Axiom Foundation"
+        >
           <img
             className="brand-mark-logo"
             src={`${import.meta.env.BASE_URL}favicon.svg`}
@@ -679,9 +685,17 @@ export function App() {
           <span className="brand-title">
             Axiom · <strong>Form Builder</strong>
           </span>
-        </div>
+        </a>
         <StepIndicator current={stepId} draft={draft} onJump={jumpTo} />
         <div className="app-actions">
+          <a
+            className="btn ghost"
+            href="https://axiom-foundation.org/demos"
+            target="_blank"
+            rel="noreferrer"
+          >
+            All demos
+          </a>
           <button
             className="btn ghost"
             onClick={() => setResetConfirmOpen(true)}
