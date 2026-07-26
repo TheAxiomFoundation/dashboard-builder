@@ -670,18 +670,26 @@ export function App() {
     <div className="app">
       <header className="app-header">
         <div className="brand">
-          <img
-            className="brand-mark-logo"
-            src={`${import.meta.env.BASE_URL}favicon.svg`}
-            alt=""
-            aria-hidden="true"
-          />
-          <span className="brand-title">
-            Axiom · <strong>Form Builder</strong>
-          </span>
+          <a
+            className="brand-logo"
+            href="https://axiom-foundation.org"
+            aria-label="Axiom Foundation"
+          >
+            <img
+              className="brand-wordmark"
+              src={`${import.meta.env.BASE_URL}axiom-foundation.svg`}
+              alt="Axiom Foundation"
+            />
+          </a>
+          <a className="brand-title" href={import.meta.env.BASE_URL}>
+            <span className="brand-name">Form Builder</span>
+          </a>
         </div>
         <StepIndicator current={stepId} draft={draft} onJump={jumpTo} />
         <div className="app-actions">
+          <a className="all-demos-link" href="https://axiom.org/demos">
+            All demos
+          </a>
           <button
             className="btn ghost"
             onClick={() => setResetConfirmOpen(true)}
