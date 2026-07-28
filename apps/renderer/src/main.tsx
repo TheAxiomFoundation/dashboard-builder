@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import "./posthog";
 import "@axiom-foundation/ui/tokens.css";
 import "@dashboard-builder/render/styles.css";
 import "./styles.css";
