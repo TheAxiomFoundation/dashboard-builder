@@ -62,7 +62,7 @@ Deploy:
 
 ```bash
 vercel deploy --prod
-# → https://dashboard-builder.vercel.app  (or whatever PE chooses)
+# → https://dashboard-builder.vercel.app  (or whatever the team chooses)
 ```
 
 `vercel.json` at the repo root tells Vercel to install with pnpm, build
@@ -73,7 +73,7 @@ as the static output.
 
 In the Vercel dashboard for the project, **Settings → Domains**. PE's
 pattern is `<app>.policyengine.org`; for axiom-flavored apps something
-like `dashboards.axiom-foundation.org` may make more sense. Add the
+like `dashboards.axiom.org` may make more sense. Add the
 CNAME record in the relevant DNS provider.
 
 ## Re-deploy cadence
