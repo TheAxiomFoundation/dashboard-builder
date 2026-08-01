@@ -73,7 +73,7 @@ as the static output.
 
 In the Vercel dashboard for the project, **Settings → Domains**. PE's
 pattern is `<app>.policyengine.org`; for axiom-flavored apps something
-like `dashboards.axiom-foundation.org` may make more sense. Add the
+like `dashboards.axiom.org` may make more sense. Add the
 CNAME record in the relevant DNS provider.
 
 ## Re-deploy cadence
