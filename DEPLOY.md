@@ -31,7 +31,7 @@ Modal prints a public URL like:
 https://policyengine--dashboard-builder-compute.modal.run
 ```
 
-> Modal dropped function-name URL suffixes (the old `-web` shape) in its 2026 URL scheme; literals rot when that happens. Trust the URL `modal deploy` prints over anything written here.
+> The hostname is the Modal function label — modal_app.py sets `asgi_app(label="dashboard-builder-compute")`, so the URL carries no `-web` suffix. Rename the label and every literal here rots: trust the URL `modal deploy` prints.
 
 Copy it. Verify it works:
 
