@@ -12,7 +12,7 @@ Build cost: the first deploy compiles Rust (~3-4 min); subsequent deploys
 reuse the cached layer unless ``ENGINE_VERSION`` is bumped.
 
 The deployed URL prints as
-``https://policyengine--dashboard-builder-compute-web.modal.run``
+``https://policyengine--dashboard-builder-compute.modal.run``
 (or similar). Set that as ``VITE_COMPUTE_URL`` on the Vercel project.
 """
 

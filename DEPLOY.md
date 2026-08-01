@@ -28,13 +28,15 @@ modal deploy modal_app.py
 Modal prints a public URL like:
 
 ```
-https://policyengine--dashboard-builder-compute-web.modal.run
+https://policyengine--dashboard-builder-compute.modal.run
 ```
+
+> The hostname is the Modal function label — modal_app.py sets `asgi_app(label="dashboard-builder-compute")`, so the URL carries no `-web` suffix. Rename the label and every literal here rots: trust the URL `modal deploy` prints.
 
 Copy it. Verify it works:
 
 ```bash
-curl https://policyengine--dashboard-builder-compute-web.modal.run/healthz
+curl https://policyengine--dashboard-builder-compute.modal.run/healthz
 # → {"status":"ok","mode":"real",...}
 ```
 

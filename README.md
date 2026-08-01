@@ -89,7 +89,7 @@ fixups.
 
 The architecture is designed for foresight, not just the demo:
 
-- **WASM compute** — once `axiom-rules-engine` adds a `wasm32` target, the renderer
+- **WASM compute** — with `axiom-rules-engine`'s `wasm32` target, the renderer
   can call the engine in-browser. The compute contract stays the same so
   nothing else changes.
 - **Spec-as-code** — dashboards are versionable YAML. Specs can live alongside
