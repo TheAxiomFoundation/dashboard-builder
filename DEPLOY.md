@@ -62,7 +62,7 @@ Deploy:
 
 ```bash
 vercel deploy --prod
-# → https://dashboard-builder.vercel.app  (or whatever the team chooses)
+# → https://dashboard-builder.vercel.app  (or whatever PE chooses)
 ```
 
 `vercel.json` at the repo root tells Vercel to install with pnpm, build
