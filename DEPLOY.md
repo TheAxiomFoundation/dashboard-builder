@@ -28,13 +28,15 @@ modal deploy modal_app.py
 Modal prints a public URL like:
 
 ```
-https://policyengine--dashboard-builder-compute-web.modal.run
+https://policyengine--dashboard-builder-compute.modal.run
 ```
+
+> Modal dropped function-name URL suffixes (the old `-web` shape) in its 2026 URL scheme; literals rot when that happens. Trust the URL `modal deploy` prints over anything written here.
 
 Copy it. Verify it works:
 
 ```bash
-curl https://policyengine--dashboard-builder-compute-web.modal.run/healthz
+curl https://policyengine--dashboard-builder-compute.modal.run/healthz
 # → {"status":"ok","mode":"real",...}
 ```
 
