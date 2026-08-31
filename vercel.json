@@ -6,23 +6,33 @@
   "outputDirectory": "apps/builder/dist",
   "rewrites": [
     {
-      "source": "/builder",
+      "source": "/gallery/builder",
       "destination": "/index.html"
     },
     {
-      "source": "/builder/",
+      "source": "/gallery/builder/",
       "destination": "/index.html"
     },
     {
-      "source": "/builder/:path*",
+      "source": "/gallery/builder/:path*",
       "destination": "/:path*"
     }
   ],
   "redirects": [
     {
       "source": "/",
-      "destination": "https://axiom.org/builder",
+      "destination": "https://axiom.org/gallery/builder",
       "permanent": true
+    },
+    {
+      "source": "/builder",
+      "destination": "/gallery/builder",
+      "permanent": false
+    },
+    {
+      "source": "/builder/:path(.*)",
+      "destination": "/gallery/builder/:path(.*)",
+      "permanent": false
     }
   ]
 }
