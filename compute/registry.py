@@ -54,6 +54,7 @@ _COMPOSED_ARTIFACT_ROOT = Path(__file__).resolve().parent / "artifacts" / "compo
 _COMPOSED_KIND = "programs"
 _PROGRAM_SUFFIX = ".yaml"
 _MAX_PROGRAM_PATH_LENGTH = 512
+_MAX_COMPONENT_BYTES = 255  # NAME_MAX on Linux (the Modal image)
 _clone_lock = threading.Lock()
 
 
@@ -86,11 +87,19 @@ def validate_program_path(path: object) -> PurePosixPath:
         raise InvalidProgramRef("program path is too long")
     if "\x00" in path or "\\" in path:
         raise InvalidProgramRef(f"invalid program path {_describe(path)}")
+    try:
+        # Lone surrogates (valid JSON escapes) can't reach the filesystem.
+        path.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise InvalidProgramRef(f"invalid program path {_describe(path)}") from exc
     rel = PurePosixPath(path)
     if rel.is_absolute():
         raise InvalidProgramRef(f"program path must be relative: {_describe(path)}")
     if not rel.parts or any(part.startswith(".") for part in rel.parts):
         raise InvalidProgramRef(f"invalid program path {_describe(path)}")
+    if any(len(part.encode("utf-8")) > _MAX_COMPONENT_BYTES for part in rel.parts):
+        # Longer names fail stat() with ENAMETOOLONG, a 500 rather than a 400.
+        raise InvalidProgramRef("program path has an overlong component")
     if rel.suffix != _PROGRAM_SUFFIX:
         raise InvalidProgramRef(f"program path must name a {_PROGRAM_SUFFIX} file")
     return rel

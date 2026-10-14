@@ -145,7 +145,7 @@ def program(repo: str, path: str) -> dict[str, Any]:
     parsed = yaml.safe_load(program_path.read_text())
     rules = parsed.get("rules", []) if isinstance(parsed, dict) else []
     summary = ""
-    if isinstance(parsed.get("module"), dict):
+    if isinstance(parsed, dict) and isinstance(parsed.get("module"), dict):
         summary = parsed["module"].get("summary", "")
 
     test = find_test_template(program_path)

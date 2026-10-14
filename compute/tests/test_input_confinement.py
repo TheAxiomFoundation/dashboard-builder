@@ -10,6 +10,7 @@ sibling checkouts.
 """
 from __future__ import annotations
 
+import json
 import os
 import string
 import sys
@@ -17,6 +18,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterator
+from urllib.parse import quote
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -344,6 +346,9 @@ def test_well_formed_paths_pass_validation(path: str) -> None:
     "policies/p.yaml\x00.txt",
     "..\\..\\secret\\secret.yaml",
     "a" * 600 + ".yaml",
+    "a" * 256 + ".yaml",
+    "policies/" + "\u00e9" * 126 + ".yaml",
+    "policies/\ud800.yaml",
     7,
     None,
     ["policies/p.yaml"],
@@ -436,8 +441,10 @@ _COMPONENTS = st.one_of(
         "secret.yaml", "rules", "rulespec-us", "rules-us", "rulespec-us-co",
         "rulespec-il", "il.yaml", ".git", "config.yaml", "%2e%2e", "..%2f",
         "\x00", "a\\..\\b.yaml", "etc", "passwd", "artifacts", "composed",
+        "a" * 251 + ".yaml", "a" * 300, "\u00e9" * 130, "\ud800", "x\udcff.yaml",
     ]),
     st.text(max_size=10),
+    st.text(alphabet=st.characters(min_codepoint=0xD7F0, max_codepoint=0xE010), max_size=4),
 )
 _PATHS = st.one_of(
     st.builds(
@@ -523,6 +530,58 @@ def test_property_validated_paths_are_lexically_inside_any_base(path: str) -> No
 
 # --- HTTP surface ---------------------------------------------------------
 
+_HTTP_REPOS = st.one_of(
+    st.sampled_from(sorted(ALLOWED_REPOS)),
+    st.sampled_from(["..", "rulespec-il", "axiom-compose", ".", "rules-us/..", "rules-us%2F.."]),
+    st.text(max_size=12),
+)
+
+
+@given(repo=_HTTP_REPOS, path=_PATHS, suffix=st.sampled_from(["", "/graph"]))
+@settings(max_examples=500, deadline=None)
+def test_property_http_get_is_200_400_or_404_and_never_leaks(
+    shared_ws: Workspace, repo: str, path: str, suffix: str,
+) -> None:
+    url = f"/repos/{quote(repo, safe='')}/programs/{quote(path, safe='/', errors='surrogatepass')}{suffix}"
+    with _service(shared_ws) as spy:
+        resp = TestClient(main.app).get(url)
+    # /graph answers a non-program YAML (a .test.yaml fixture) with its own
+    # explicit 500; any other server error is a bug.
+    graph_error = suffix == "/graph" and resp.status_code == 500 and resp.json().get(
+        "detail", ""
+    ).startswith("failed to build graph")
+    assert resp.status_code in {200, 400, 404} or graph_error, (url, resp.status_code, resp.text[:200])
+    assert SECRET not in resp.text
+    if isinstance(repo, str) and repo in ALLOWED_REPOS:
+        _assert_confined(shared_ws, repo, None, spy)
+    else:
+        assert spy.clones == []
+
+
+@given(
+    repo=st.one_of(_HTTP_REPOS, st.integers(), st.none(), st.lists(st.text(max_size=4), max_size=2)),
+    path=st.one_of(_PATHS, st.integers(), st.none(), st.dictionaries(st.text(max_size=3), st.integers(), max_size=1)),
+)
+@settings(max_examples=500, deadline=None)
+def test_property_http_compute_is_never_a_server_error_or_leak(
+    shared_ws: Workspace, repo: object, path: object,
+) -> None:
+    with _service(shared_ws) as spy:
+        # json.dumps escapes lone surrogates as \\ud800, as a raw client would;
+        # httpx's own encoder refuses them before sending.
+        resp = TestClient(main.app).post(
+            "/compute",
+            content=json.dumps(_body(repo, path)),
+            headers={"content-type": "application/json"},
+        )
+    assert resp.status_code in {200, 400, 404}, (repo, path, resp.status_code, resp.text[:200])
+    assert SECRET not in resp.text
+    if isinstance(repo, str) and repo in ALLOWED_REPOS:
+        _assert_confined(shared_ws, repo, None, spy)
+    else:
+        assert spy.calls == []
+
+
 @pytest.fixture()
 def client(ws: Workspace) -> Iterator[tuple[TestClient, SubprocessSpy, Workspace]]:
     with _service(ws) as spy:
@@ -582,6 +641,14 @@ def test_http_escape_attempts_get_400(client, url: str) -> None:
     assert spy.calls == []
 
 
+def test_http_fixture_file_is_not_a_server_error(client) -> None:
+    # A .test.yaml parses to a list; the program view used to 500 on it.
+    c, _, _ = client
+    resp = c.get("/repos/rules-us/programs/regulations/7-cfr/273/10.test.yaml")
+    assert resp.status_code == 200
+    assert resp.json()["outputs"] == []
+
+
 def test_http_transitive_escape_gets_400(client) -> None:
     c, spy, _ = client
     resp = c.post("/repos/rules-us/programs/escape_link.yaml/transitive", json={"outputs": []})
@@ -608,6 +675,18 @@ def test_http_body_escape_attempts_get_400(client, endpoint: str, repo: object, 
     assert SECRET not in resp.text
     assert spy.calls == []
     assert list(ws.artifact_root.iterdir()) == []
+
+
+@pytest.mark.parametrize("path", ["\ud800.yaml", "policies/" + "a" * 300 + ".yaml"])
+def test_http_unencodable_or_overlong_path_gets_400(client, path: str) -> None:
+    c, spy, _ = client
+    resp = c.post(
+        "/compute",
+        content=json.dumps(_body("rules-us", path)),
+        headers={"content-type": "application/json"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert spy.calls == []
 
 
 def test_sensitivity_queried_outputs_cannot_pull_fixtures_from_outside(ws: Workspace) -> None:
