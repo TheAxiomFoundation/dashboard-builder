@@ -1,0 +1,33 @@
+name: Compute tests
+
+on:
+  pull_request:
+    paths:
+      - "compute/**"
+      - "modal_app.py"
+      - ".github/workflows/compute-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "compute/**"
+      - "modal_app.py"
+      - ".github/workflows/compute-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: compute
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          # Match the Modal image (modal_app.py: debian_slim python 3.13).
+          python-version: "3.13"
+      - run: uv sync --locked --group dev
+      - run: uv run --locked --group dev pytest -q

@@ -6,6 +6,12 @@ Two reasons we clone instead of fetching individual files at request time:
    across federal/state repos. The compiler needs them all on disk.
 2. axiom-rules-engine resolves `<jurisdiction>:<path>` imports by walking sibling
    repos. We replicate that layout.
+
+The compute service is public, so every `repo` and `path` it receives is
+untrusted. `repo` must name an allowlisted rule pack (`ALLOWED_REPOS`), and
+`path` must be a relative `.yaml` path that stays inside that pack after
+symlinks resolve. Anything else raises `InvalidProgramRef` (HTTP 400) before
+the service reads, clones, composes, or compiles anything.
 """
 
 from __future__ import annotations
@@ -13,8 +19,9 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import threading
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -36,8 +43,85 @@ DEFAULT_REPOS = [
     "rules-ca",
 ]
 
+# Every repo name the service will touch: each default rule pack under both
+# its `rules-*` alias and its canonical `rulespec-*` name. Nothing outside
+# this set is read from disk or cloned.
+ALLOWED_REPOS: frozenset[str] = frozenset(DEFAULT_REPOS) | frozenset(
+    f"rulespec-{repo[len('rules-'):]}" for repo in DEFAULT_REPOS
+)
+
 _COMPOSED_ARTIFACT_ROOT = Path(__file__).resolve().parent / "artifacts" / "composed"
 _COMPOSED_KIND = "programs"
+_PROGRAM_SUFFIX = ".yaml"
+_MAX_PROGRAM_PATH_LENGTH = 512
+_MAX_COMPONENT_BYTES = 255  # NAME_MAX on Linux (the Modal image)
+_clone_lock = threading.Lock()
+
+
+class InvalidProgramRef(ValueError):
+    """A request named a repo or path outside the allowlisted rule packs."""
+
+
+def _describe(value: object) -> str:
+    text = repr(value)
+    return text if len(text) <= 80 else f"{text[:77]}..."
+
+
+def validate_repo(repo: object) -> str:
+    """Return `repo` if it names an allowlisted rule pack; raise otherwise."""
+    if not isinstance(repo, str) or repo not in ALLOWED_REPOS:
+        raise InvalidProgramRef(f"unknown repo {_describe(repo)}")
+    return repo
+
+
+def validate_program_path(path: object) -> PurePosixPath:
+    """Check the syntax of a program path from a request.
+
+    Accepts only a relative POSIX path to a `.yaml` file with no `.`-prefixed
+    component, which rules out `..`, `.git`, and other hidden entries. This
+    is the lexical half of confinement; `_confine` adds the symlink check.
+    """
+    if not isinstance(path, str) or not path:
+        raise InvalidProgramRef("program path is required")
+    if len(path) > _MAX_PROGRAM_PATH_LENGTH:
+        raise InvalidProgramRef("program path is too long")
+    if "\x00" in path or "\\" in path:
+        raise InvalidProgramRef(f"invalid program path {_describe(path)}")
+    try:
+        # Lone surrogates (valid JSON escapes) can't reach the filesystem.
+        path.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise InvalidProgramRef(f"invalid program path {_describe(path)}") from exc
+    rel = PurePosixPath(path)
+    if rel.is_absolute():
+        raise InvalidProgramRef(f"program path must be relative: {_describe(path)}")
+    if not rel.parts or any(part.startswith(".") for part in rel.parts):
+        raise InvalidProgramRef(f"invalid program path {_describe(path)}")
+    if any(len(part.encode("utf-8")) > _MAX_COMPONENT_BYTES for part in rel.parts):
+        # Longer names fail stat() with ENAMETOOLONG, a 500 rather than a 400.
+        raise InvalidProgramRef("program path has an overlong component")
+    if rel.suffix != _PROGRAM_SUFFIX:
+        raise InvalidProgramRef(f"program path must name a {_PROGRAM_SUFFIX} file")
+    return rel
+
+
+def _confine(base: Path, rel: PurePosixPath) -> Path:
+    """Join `rel` onto `base` and require the real path to stay under `base`.
+
+    `base` itself may be a symlink (`/opt/rules-us -> /opt/rulespec-us`);
+    the deployment controls those. Symlinks *below* it must not lead out.
+    Returns the joined path unresolved so callers see the same alias-rooted
+    paths as before.
+    """
+    joined = base / rel
+    try:
+        real_base = base.resolve()
+        real = joined.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise InvalidProgramRef(f"invalid program path {_describe(str(rel))}") from exc
+    if not real.is_relative_to(real_base):
+        raise InvalidProgramRef(f"program path escapes its rule pack: {_describe(str(rel))}")
+    return joined
 
 
 @dataclass
@@ -56,6 +140,7 @@ class RegistryConfig:
 
 
 def repo_path(config: RegistryConfig, repo: str) -> Path:
+    repo = validate_repo(repo)
     primary = config.root / repo
     if primary.exists():
         return primary
@@ -71,23 +156,31 @@ def repo_path(config: RegistryConfig, repo: str) -> Path:
 
 
 def ensure_repo(config: RegistryConfig, repo: str) -> Path:
-    """Clone the repo if missing. Idempotent."""
+    """Clone an allowlisted repo if missing. Idempotent."""
     path = repo_path(config, repo)
     if path.exists():
         return path
-    config.root.mkdir(parents=True, exist_ok=True)
     clone_repo = f"rulespec-{repo[len('rules-'):]}" if repo.startswith("rules-") else repo
     url = f"https://github.com/TheAxiomFoundation/{clone_repo}.git"
-    subprocess.run(
-        ["git", "clone", "--depth", "1", url, str(path)],
-        check=True,
-        capture_output=True,
-    )
+    # Concurrent requests for the same missing pack would otherwise race
+    # two clones into one directory.
+    with _clone_lock:
+        if path.exists():
+            return path
+        config.root.mkdir(parents=True, exist_ok=True)
+        try:
+            subprocess.run(
+                ["git", "clone", "--depth", "1", url, str(path)],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise FileNotFoundError(f"could not clone rule pack {repo}") from exc
     return path
 
 
 def list_known_repos(config: RegistryConfig) -> list[str]:
-    """Repos that exist on disk now. Falls back to DEFAULT_REPOS if none cloned yet."""
+    """Allowlisted repos on disk now. Falls back to DEFAULT_REPOS if none cloned yet."""
     if not config.root.exists():
         return list(DEFAULT_REPOS)
     found: set[str] = set()
@@ -98,7 +191,7 @@ def list_known_repos(config: RegistryConfig) -> list[str]:
             found.add(p.name)
         elif p.name.startswith("rulespec-"):
             found.add(f"rules-{p.name[len('rulespec-'):]}")
-    return sorted(found) or list(DEFAULT_REPOS)
+    return sorted(found & ALLOWED_REPOS) or list(DEFAULT_REPOS)
 
 
 _summary_cache: dict[Path, tuple[float, str]] = {}
@@ -163,14 +256,22 @@ def list_programs(config: RegistryConfig, repo: str) -> list[dict]:
 
 
 def resolve_program(config: RegistryConfig, repo: str, path: str) -> Path:
-    if path.startswith(f"{_COMPOSED_KIND}/"):
-        composed = _resolve_composed_program(config, repo, path)
+    """Map a request's (repo, path) to a program file inside that rule pack.
+
+    Raises `InvalidProgramRef` for a repo outside `ALLOWED_REPOS` or a path
+    that is not a confined `.yaml` path, before any clone, compose, or read.
+    Raises `FileNotFoundError` for a well-formed path that names no file.
+    """
+    repo = validate_repo(repo)
+    rel = validate_program_path(path)
+    if rel.parts[0] == _COMPOSED_KIND:
+        composed = _resolve_composed_program(config, repo, rel)
         if composed is not None:
             return composed
     repo_dir = ensure_repo(config, repo)
-    full = repo_dir / path
-    if not full.exists():
-        raise FileNotFoundError(f"program not found: {repo}/{path}")
+    full = _confine(repo_dir, rel)
+    if not full.is_file():
+        raise FileNotFoundError(f"program not found: {repo}/{rel}")
     return full
 
 
@@ -204,17 +305,23 @@ def _compose_repo(config: RegistryConfig) -> Path:
     return config.root / "axiom-compose"
 
 
-def _composed_source_for(config: RegistryConfig, repo: str, path: str) -> Path | None:
+def _composed_source_for(
+    config: RegistryConfig,
+    repo: str,
+    rel: PurePosixPath,
+) -> Path | None:
     jurisdiction = _repo_jurisdiction(repo)
-    if not jurisdiction or not path.startswith(f"{_COMPOSED_KIND}/"):
+    if not jurisdiction or len(rel.parts) < 2 or rel.parts[0] != _COMPOSED_KIND:
         return None
-    rel = Path(path).relative_to(_COMPOSED_KIND)
-    source = _programs_repo(config) / jurisdiction / rel
-    return source if source.exists() else None
+    source = _confine(
+        _programs_repo(config) / jurisdiction,
+        rel.relative_to(_COMPOSED_KIND),
+    )
+    return source if source.is_file() else None
 
 
-def _composed_artifact_path(repo: str, path: str) -> Path:
-    return _COMPOSED_ARTIFACT_ROOT / repo / path
+def _composed_artifact_path(repo: str, rel: PurePosixPath) -> Path:
+    return _confine(_COMPOSED_ARTIFACT_ROOT / repo, rel)
 
 
 def _list_composed_programs(config: RegistryConfig, repo: str) -> list[dict]:
@@ -263,13 +370,13 @@ def _read_composed_summary(yaml_path: Path, jurisdiction: str) -> str:
 def _resolve_composed_program(
     config: RegistryConfig,
     repo: str,
-    path: str,
+    rel: PurePosixPath,
 ) -> Path | None:
-    source = _composed_source_for(config, repo, path)
+    source = _composed_source_for(config, repo, rel)
     if source is None:
         return None
 
-    artifact = _composed_artifact_path(repo, path)
+    artifact = _composed_artifact_path(repo, rel)
     source_mtime = source.stat().st_mtime
     if artifact.exists() and artifact.stat().st_mtime >= source_mtime:
         _sanitize_composed_artifact(artifact)

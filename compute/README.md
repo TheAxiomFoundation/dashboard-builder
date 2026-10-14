@@ -25,6 +25,8 @@ uv run uvicorn main:app --reload --port 8787
 
 The first `/compute` call clones the relevant `rulespec-*` repo as a sibling of
 `dashboard-builder/`. Set `AXIOM_RULESPEC_ROOT` to override that location.
+Only the rule packs in `registry.ALLOWED_REPOS` (`DEFAULT_REPOS` under their
+`rules-*` and `rulespec-*` names) are ever read or cloned.
 
 ## Quickstart (real mode)
 
@@ -55,5 +57,23 @@ GET  /healthz
 GET  /repos
 GET  /repos/{repo}/programs
 GET  /repos/{repo}/programs/{path}
+GET  /repos/{repo}/programs/{path}/graph
+POST /repos/{repo}/programs/{path}/transitive
 POST /compute
+POST /sensitivity
+```
+
+The service is public, so `repo` and `path` (URL segments, or
+`program.repo` / `program.path` in a request body) are untrusted. A `repo`
+outside `ALLOWED_REPOS`, or a `path` that is absolute, has a `.`-prefixed
+component such as `..`, is not a `.yaml` file, or resolves (after symlinks)
+outside its rule pack, gets HTTP 400 before anything is read, cloned,
+composed, or compiled. `compute/tests/test_input_confinement.py` checks this
+with property-based tests.
+
+## Tests
+
+```bash
+cd compute
+uv run --group dev pytest -q
 ```

@@ -117,6 +117,7 @@ image = (
             "artifacts/**",
             ".cache/**",
             ".pytest_cache/**",
+            ".hypothesis/**",
             ".venv/**",
             "__pycache__/**",
             "**/__pycache__/**",

@@ -149,6 +149,7 @@ __pycache__/
 .uv/
 .pytest_cache/
 .ruff_cache/
+.hypothesis/
 
 # Compute artifacts and caches
 compute/.cache/
