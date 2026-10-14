@@ -123,7 +123,12 @@ class SourceFileRoutingTests(unittest.TestCase):
         # SNAP should pull scenarios from 273/10.test.yaml (where the
         # rule is defined) rather than CO's own fixture (which doesn't
         # seed the federal aggregate inputs).
-        from registry import resolve_program
+        from registry import repo_path, resolve_program
+        # resolve_program clones a missing pack, so check the disk first:
+        # this test needs local checkouts and must not reach the network.
+        for repo in ("rules-us-co", "rules-us"):
+            if not repo_path(main._config, repo).exists():
+                self.skipTest(f"{repo} not checked out")
         try:
             co_path = resolve_program(
                 main._config,

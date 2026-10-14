@@ -19,6 +19,12 @@ engine = [
   # Set AXIOM_RULES_ENGINE_BIN to the compiled binary path before running uvicorn.
 ]
 
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "hypothesis>=6.100",
+]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

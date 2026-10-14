@@ -18,8 +18,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # Auto-load `.env` so `uvicorn main:app` picks up AXIOM_RULES_ENGINE_BIN and friends
@@ -33,6 +34,7 @@ except ImportError:
 from engine import ComputeMode, detect_mode, execute_demo, execute_real
 from graph import build_graph, graph_to_dict, transitive_dependencies
 from registry import (
+    InvalidProgramRef,
     RegistryConfig,
     list_known_repos,
     list_programs,
@@ -65,6 +67,12 @@ _sensitivity_cache: dict[str, SensitivityResponseBody] = {}
 _SENSITIVITY_MAX_WORKERS = 16
 
 
+@app.exception_handler(InvalidProgramRef)
+def invalid_program_ref(_request: Request, exc: InvalidProgramRef) -> JSONResponse:
+    """A repo or path outside the allowlisted rule packs is a client error."""
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
 class HealthResponse(BaseModel):
     status: str
     mode: str
@@ -91,6 +99,8 @@ def repos() -> dict[str, Any]:
 def programs(repo: str) -> dict[str, Any]:
     try:
         return {"programs": list_programs(_config, repo)}
+    except InvalidProgramRef:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"failed to list programs: {exc}") from exc
 
@@ -361,7 +371,7 @@ def _file_path_for_legal_id(file_legal_id: str) -> Path | None:
     repo = f"rules-{head}"
     try:
         return resolve_program(_config, repo, f"{rest}.yaml")
-    except FileNotFoundError:
+    except (FileNotFoundError, InvalidProgramRef):
         return None
 
 
